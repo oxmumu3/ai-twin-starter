@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tgz
+.agent-twin/
+.env
+.env.*
+*.log
+.DS_Store
+coverage/

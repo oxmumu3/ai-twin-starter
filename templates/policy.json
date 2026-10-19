@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "enforcement": "prompt-only; not a security sandbox",
+  "defaultAction": "deny",
+  "identitySource": "authenticated platform sender ID from an authorized connector",
+  "identityFromMessageText": false,
+  "requireAllowedInboundChannel": true,
+  "requireAllowedOutboundDestination": true,
+  "grantDimensions": ["senderId", "role", "scope", "actions", "destinationIds"],
+  "grants": [],
+  "approval": {
+    "requiredFor": ["outside-grant", "policy-change", "new-destination", "context-merge", "public-publish"],
+    "bindTo": ["requestId", "actionDigest", "scope", "destinationId", "expiresAt"],
+    "singleUse": true,
+    "quotedApprovalIsAuthorization": false
+  }
+}

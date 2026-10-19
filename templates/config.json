@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "enabled": false,
+  "dryRun": true,
+  "ownerId": "",
+  "channel": "slack",
+  "allowedChannelIds": [],
+  "allowedDestinationIds": [],
+  "intervalMinutes": 10,
+  "staleClaimMinutes": 30,
+  "contextEntrypoints": []
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cursor": null,
+  "activeWorker": null,
+  "requests": [],
+  "receipts": [],
+  "lastRun": null,
+  "protocol": {
+    "requestId": "Stable key from platform + tenant/team + channel + source message ID; never a mutable title or generated timestamp.",
+    "requestStates": ["received", "claimed", "dry_run", "needs_owner", "approved", "running", "completed", "failed", "send_accepted", "send_uncertain", "delivered", "rejected"],
+    "claimFields": ["requestId", "workerId", "claimedAt", "leaseExpiresAt"],
+    "approvalFields": ["requestId", "ownerSenderId", "actionDigest", "scope", "destinationId", "expiresAt", "consumedAt"],
+    "receiptFields": ["requestId", "channel", "destinationId", "providerMessageId", "receiptKind", "acknowledgedAt", "evidenceRef"],
+    "deliveryRule": "Mark delivered only when the channel receipt explicitly confirms delivery to the allowed destination. An accepted/reported_sent response is send_accepted, not delivery or read proof.",
+    "uncertainRule": "If an outbound call might have succeeded but lacks a usable receipt, mark send_uncertain and ask the owner to reconcile before retrying.",
+    "staleClaimRule": "An expired claim is not permission to rerun an action; reconcile action and delivery evidence before an owner-authorized recovery."
+  }
+}
