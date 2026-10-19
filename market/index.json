@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Distilled AI Twin",
+    "zh": "蒸馏分身"
+  },
+  "description": {
+    "en": "Private project distillation, read-only Slack checks and permission dry runs.",
+    "zh": "从已有项目蒸馏分身，连接通道做只读核验，再验收权限分流。"
+  },
+  "plugins": [
+    {
+      "name": "dsh-agent-twin",
+      "title": {
+        "en": "Distilled AI Twin",
+        "zh": "蒸馏分身"
+      },
+      "description": {
+        "en": "Distill explicitly selected project files into private sourced cards, verify Slack read access, and run permission routing without sending or business actions.",
+        "zh": "显式选材提炼私有来源卡片，核验Slack只读准入，验收权限分流；不外发、不执行业务。"
+      },
+      "author": "牛村木木山",
+      "homepage": "https://github.com/piggy00544/ai-twin-starter#readme",
+      "repository": {
+        "url": "https://github.com/piggy00544/ai-twin-starter"
+      },
+      "versions": [
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1792391340,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/piggy00544/ai-twin-starter",
+            "commit": "34e82e8ab7db4a0667198f1dba97a590abb17d45"
+          },
+          "engines": {
+            "dsh": "0.2.1-rc.2"
+          }
+        }
+      ]
+    }
+  ]
+}
