@@ -1,53 +1,56 @@
-# Agent Twin Starter
+# Agent Twin
 
-把你日常工作的 Agent 配成可以接待、分流和交办的在线分身。
+用已有工作 Agent，按三个步骤搭分身：**蒸馏分身 → 连接通道 → 设定权限**。
 
-复用你自己的上下文、工具、消息授权与调度能力。这个项目提供通用配置、运行规程和初始化器；同一份包也可作为 DeepSeek Harness 插件安装。MIT，作者：牛村木木山。
+## 三步分别做什么
+
+1. **蒸馏分身**：实际读取你指定的项目资料，由当前 Agent 提炼知识、判断、工作流与工具四类内容；工具校验来源和行号，生成本地私有知识包。源资料变化后识别失效卡片，保留历史，交 Agent 更新。
+2. **连接通道**：当前提供 Slack 只读适配器，实际查询认证身份、本人账号、频道、本人回传目的地及少量入站消息。凭据留在本地环境，不进入聊天、项目资料或公开仓库。
+3. **设定权限**：按平台真实 sender、tenant、频道、scope、action 和 destination 做代码路由验收。重复请求保留同一 ID，越权或意图不明确的请求交本人；dry-run 不执行业务动作、不发送消息。
+
+现有 Agent 负责理解和提炼，代码负责读取边界、来源核验、知识落盘、通道探测与权限检查。无需另外购买模型 API；你的项目、工具和渠道仍由你授权。
 
 ## 给 Agent 的一句话
 
 其他 Agent：
 
-> 阅读 https://github.com/piggy00544/ai-twin-starter 的 SETUP.md，下载项目，按说明帮我的现有 Agent 配置在线分身，带我完成渠道授权、权限设置和试运行。
+> 阅读 https://github.com/piggy00544/ai-twin-starter ，下载项目，按 SETUP.md 帮我蒸馏分身、连接 Slack、设定权限，先完成只读 dry-run，不发送消息。
 
-DeepSeek Harness（在支持原生 `plugin_manager` 的版本中）：
+DeepSeek Harness：
 
-> 安装并启用 https://github.com/piggy00544/ai-twin-starter/releases/download/v0.1.0/dsh-agent-twin-0.1.0.tgz ，再用 agent_twin 运行手册带我完成分身配置。
+> 安装并启用 https://github.com/piggy00544/ai-twin-starter/releases/download/v0.2.0/dsh-agent-twin-0.2.0.tgz ，按运行手册带我完成蒸馏分身、连接 Slack 和权限 dry-run。
 
-免开发指不需要自己写代码。首次仍要提供自己的 context、授权消息渠道、指定本人和服务对象；Agent 或宿主必须已有消息工具与持久调度。缺少任一能力时，安装说明会要求明确停在未就绪状态。
+首次需要选择允许读取的材料，并完成自己的 Slack 授权、账号和范围设置。不要在对话中粘贴 token。没有凭据或权限时，通道探测返回 blocked，不会宣称已连接。
 
-## 安装后有什么
+## 一个有内容的例子
 
-在你选定的工作目录创建 `.agent-twin/`，内含空白配置、默认拒绝的权限模板、取单规程、请求台账、人工决策和日报模板。初始化默认关闭，不读取你的原项目文件，不联网、不发消息、不注册调度、不覆盖已有目录。
+[脱敏工作方法示例](examples/synthetic-operations/README.md)取材于作者的实际工作机制，所有实体、路径、材料与证据均独立重写为合成内容。它演示如何从四份资料提炼出：正式来源的权威边界、数字对平后的判断、处理数据请求的工作流、只读查询工具契约。
 
-它不会附带作者的工作数据、记忆、内部工具、平台凭据或业务能力。安装插件本身也不会创建一个常驻机器人。
+真实用户资料和来源映射只留在本地；本项目不提供把任意私有分身包一键公开的导出功能。
 
-## 在终端初始化
+## 终端入口
 
-要求 Node.js 22 或更新版本。只运行通用初始化器不需要安装任何 npm 依赖。
+要求 Node.js 22+。通用 CLI 只使用 Node 内置模块，不需要 npm install。
 
 ```sh
 git clone https://github.com/piggy00544/ai-twin-starter.git
 cd ai-twin-starter
-node bin/agent-twin.mjs init --cwd /absolute/path/to/your/workspace
-node bin/agent-twin.mjs status --cwd /absolute/path/to/your/workspace
-node bin/agent-twin.mjs runbook --cwd /absolute/path/to/your/workspace
+node bin/agent-twin.mjs init --cwd /absolute/path/to/your/project
+node bin/agent-twin.mjs distill-prepare --cwd /absolute/path/to/your/project --entry rules.md --entry workflows.md
 ```
 
-选已有项目目录即可。命令只在其中创建 `.agent-twin/`，不会把其他文件打包上传。不要将此配置目录或任何凭据提交到公开仓库。完整设置见 [SETUP.md](SETUP.md)，DSH 入口见 [插件安装说明](docs/dsh-install.md)。
+让当前 Agent 根据 prepare 返回的真实资料提取卡片，再调用 `distill-apply --batch <batchId> --cards <proposal.json>`；工具会验证而后真正落包。完整命令和结构见 [蒸馏说明](docs/distill.md)。[通道说明](docs/channel.md)包含 Slack 无代码授权和 probe/tick 的实际行为。
 
-## 三层设计
+## DSH 与市场
 
-| 层 | 你提供 | 配置包提供 |
-|---|---|---|
-| 能力和上下文 | 已有 Agent、项目规则、可核实的背景、工作流、工具 | 明确的 context 入口和能力检查 |
-| 消息入口 | 平台官方连接器、授权、允许读取的收件范围 | 输入/输出目的地与身份核验规程 |
-| 服务机制 | 宿主调度、实际工具权限、本人决策 | 按人按事分流、去重台账、交付回执、人工队列、日报规程 |
+DSH 插件提供上述同一套 API，使用宿主当前项目目录并尊重只读/工作区权限。[安装说明](docs/dsh-install.md)列出操作和验证范围。
 
-权限模板是 Agent 的行为约定。要限制真实访问，仍须在连接器和执行工具层配置最小权限；本包不是安全沙箱，不提供已验证的强制 ACL。锁、lease、去重与 outbox 目前写在规程中，**不是本包实现的可靠队列服务**。宿主若不能原子领取或查询发送结果，应使用单一 worker 并将不确定结果交本人核查。
+DSH 已有官方提供的[自定义插件市场功能](https://deepseek-harness.github.io/deepseek-harness/guide/plugin-market)，官方文档说明没有内置索引源。本项目的[自托管索引](https://raw.githubusercontent.com/piggy00544/ai-twin-starter/main/market/index.json)可以添加到该发现页；这不代表官方统一收录或审核。直接安装 `.tgz` 也不需要先添加市场。
 
-## 什么时候算可用
+## 当前范围
 
-分别检查：安装成功、初始化成功、配置完成、渠道已授权、dry-run 通过、调度已注册、真实线程交付有回执。逐项留证据；生成文件不能代替后面几项。`status` 只检查本地配置，不会把它标成真实在线。平台发送回执也不代表对方已读。
+0.1.0 只做了模板初始化，未实现前两步；此前把它描述成完整免开发搭建入口的范围不准确。
 
-首版验证范围与限制见 [验收记录](docs/verification.md)。设计细节见 [架构](docs/architecture.md)，公开边界见 [隐私与打包](docs/privacy.md)。
+0.2.0 增加项目内容蒸馏、来源刷新、Slack 只读探测和代码权限 dry-run。持续调度、正式业务执行与对外回复仍由原 Agent 及其授权工具承担。本包没有新建常驻机器人服务，也不能用安装或合成测试代替真实账号收发验收。`status` 不会把配置齐全标成已在线。
+
+MIT，作者：牛村木木山。详见 [SETUP.md](SETUP.md)、[验收记录](docs/verification.md)、[隐私边界](docs/privacy.md)。

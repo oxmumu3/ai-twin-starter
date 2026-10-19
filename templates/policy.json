@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "enforcement": "prompt-only; not a security sandbox",
+  "enforcement": "code checks sender/scope/action/destination for dry-run routing; external tool execution remains governed by host permissions",
   "defaultAction": "deny",
   "identitySource": "authenticated platform sender ID from an authorized connector",
   "identityFromMessageText": false,

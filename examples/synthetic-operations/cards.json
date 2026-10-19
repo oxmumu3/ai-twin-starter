@@ -1,0 +1,42 @@
+[
+  {
+    "id": "source-authority",
+    "kind": "knowledge",
+    "title": "按来源职责使用数字",
+    "content": "正式总量由正式报表验收；操作记录支持明细拆解，来源平台支持平台侧趋势。取得某个数字不等于取得定义权。正式来源缺失时单列代理数并说明缺口。",
+    "when": "多套数字冲突，或请求用方便取得的数据替代正式结果时。",
+    "limits": "不能自行更改正式定义；这套来源分工仅是合成示例。",
+    "status": "documented",
+    "sourceRefs": [{"sourceId":"src-93f2c137269490c24bff562c","startLine":3,"endLine":5}]
+  },
+  {
+    "id": "reconcile-before-conclusion",
+    "kind": "judgment",
+    "title": "条件没对齐就暂停结论",
+    "content": "比较前先对齐时间、粒度、分母和事件定义；分组与总量不平时先排查关联重复、遗漏和来源范围，再决定是否交付。共同变化只能支持待验证解释，不能直接写成因果。",
+    "when": "跨时期、跨来源比较或准备交付分析判断时。",
+    "limits": "早期表现不外推长周期结果；对平也不能自动证明因果。",
+    "status": "documented",
+    "sourceRefs": [{"sourceId":"src-9b7731f79356896ae1d1ce6e","startLine":3,"endLine":5}]
+  },
+  {
+    "id": "answer-data-request",
+    "kind": "workflow",
+    "title": "从获准请求到可核查交付",
+    "content": "核身份和范围，优先复用既有定义与报告，补齐必要输入，再只读取数并核对口径。产物包含结果、截止点、来源和限制；在原获准线程交付并记回执。身份、范围、结果或发送状态不明时停止并交本人核查。",
+    "when": "获准成员在允许线程提出数据问题时。",
+    "limits": "不处理超范围明细；发送不明不自动重试，接口成功不等于已读。",
+    "status": "documented",
+    "sourceRefs": [{"sourceId":"src-2ccf59c6e3ac0054743d450a","startLine":3,"endLine":7}]
+  },
+  {
+    "id": "readonly-analysis",
+    "kind": "tool",
+    "title": "只读查询是一项受限能力",
+    "content": "调用以已确认问题、受控查询文件、粒度和上限为输入，仅运行单条只读查询，返回结构化结果或错误。查询完成、判断成立、交付成功分别留证。",
+    "when": "既有资料不能回答问题且本人已授权该数据范围时。",
+    "limits": "不写入、不改权限、不发布生产任务、不超范围导出；凭据不进知识包，失败不编数据。",
+    "status": "documented",
+    "sourceRefs": [{"sourceId":"src-e1dcc3b1432952304a3183b6","startLine":3,"endLine":6}]
+  }
+]

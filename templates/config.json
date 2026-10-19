@@ -3,6 +3,7 @@
   "enabled": false,
   "dryRun": true,
   "ownerId": "",
+  "ownerDestinationId": "",
   "channel": "slack",
   "allowedChannelIds": [],
   "allowedDestinationIds": [],

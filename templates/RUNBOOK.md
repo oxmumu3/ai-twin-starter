@@ -1,6 +1,14 @@
 # AI 分身运行规约
 
-这是给你已有 Agent 使用的工作区模板。初始化只创建 `.agent-twin/`，不会读取旧 context、修改 AGENTS、联网、注册连接器/调度、开启后台进程或接待真实消息。权限规约由 Agent 和现有工具共同遵守；本包不在代码层强制 ACL，不是安全 sandbox，也不是后台运行时。CLI 的 status 只检查本地模板，不验证外部服务是否运作。
+这是给你已有 Agent 使用的工作区模板。初始化只创建 `.agent-twin/`，不会读取旧 context、修改 AGENTS、联网、注册连接器/调度、开启后台进程或接待真实消息；之后显式蒸馏和通道工具会分别读取所选资料和调用只读Slack接口。权限规约由 Agent 和现有工具共同遵守；本包对dry-run做代码权限路由，正式业务工具仍由宿主权限控制，不是安全 sandbox，也不是后台运行时。CLI 的 status 只检查本地模板，不验证外部服务是否运作。
+
+## 三步实际工具（0.2.0）
+
+1. 蒸馏分身：用 distill-prepare 或 DSH distill_prepare 读取本人明确选择的文件；当前Agent提炼知识、判断、工作流与工具卡，再由 distill-apply / distill_apply 核验来源并真正落盘。只存路径或返回prepared不能算完成。执行前用 distill-read / knowledge_read 取得来源仍有效的documented卡；candidate/stale不能用于执行。私有卡不向未获准的人全文展示，仍须按本次scope选取适用内容。
+2. 连接通道：配置本地Slack授权、本人ID、ownerDestinationId及允许频道，运行 channel-probe / channel_probe。工具真实查询认证/账号/频道/目的地及小量历史，不发消息。缺授权时返回blocked；不要把token粘贴聊天或写进项目。
+3. 设定权限：配置sender/role/scope/actions/destination后，显式调用 channel-tick / channel_tick。该工具固定只读dry-run，enabled:false也可验收；它按真实身份做代码路由，记录稳定requestId与有效知识generation的计划依据。没有有效蒸馏知识或意图不明时交本人，不把旧卡当当前依据。首版明确JSON意图才可能通过自动路由；自然语言理解仍由Agent承担。
+
+这里的工具dry-run与下面已有Agent的正式接待规约不同：dry-run不执行业务、不发消息、不推进生产游标；正式接待仍须按下面开关、工具授权与独立回执验收。配置包本身不等于后台服务。
 
 ## 一次配置
 

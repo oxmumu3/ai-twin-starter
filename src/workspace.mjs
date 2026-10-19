@@ -140,6 +140,7 @@ export async function inspectWorkspace(cwd) {
     if (!status.enabled) gap('disabled', 'The workspace is disabled. Initialization does not enable a service.');
     if (typeof config.enabled !== 'boolean') gap('config_invalid', 'enabled must be a boolean.');
     if (!nonEmpty(config.ownerId)) gap('owner_id', 'Set the real owner sender ID supplied by the authorized platform connector.');
+    if (!nonEmpty(config.ownerDestinationId)) gap('owner_destination', 'Set an existing owner DM destination and include it in allowedDestinationIds.');
     if (!nonEmpty(config.channel)) gap('channel', 'Choose a channel supported by the existing agent connector.');
     if (!nonEmptyList(config.allowedChannelIds)) gap('allowed_channels', 'Explicitly allow inbound channel IDs.');
     if (!nonEmptyList(config.allowedDestinationIds)) gap('allowed_destinations', 'Explicitly allow outbound destination IDs, including the owner review destination.');
@@ -158,7 +159,7 @@ export async function inspectWorkspace(cwd) {
   if (state && (!Array.isArray(state.requests) || !Array.isArray(state.receipts))) {
     gap('state_invalid', 'state.json needs explicit request and receipt ledgers.');
   }
-  gap('connector', 'This package does not register or verify a connector. Connect and test one in the existing agent.');
+  gap('connector', 'Use channel-probe to verify Slack authentication, allowed inbound conversations and the owner destination; this basic status check does not contact Slack.');
   gap('scheduler', 'This package does not register a scheduler or worker. Verify a single serial executor or a host atomic lock before scheduling.');
   return status;
 }

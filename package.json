@@ -1,7 +1,7 @@
 {
   "name": "dsh-agent-twin",
-  "version": "0.1.0",
-  "description": "A disabled-by-default AI twin workspace starter for an existing agent and its authorized connectors.",
+  "version": "0.2.0",
+  "description": "Distill a project into evidence-backed twin knowledge, probe a Slack channel, and verify permission routing.",
   "type": "module",
   "license": "MIT",
   "author": "牛村木木山",
@@ -9,7 +9,7 @@
   "engines": { "node": ">=22" },
   "exports": "./index.js",
   "bin": { "agent-twin": "./bin/agent-twin.mjs" },
-  "files": ["bin/", "src/", "templates/", "index.js", "cordis.patch.yml", "README.md", "SETUP.md", "LICENSE", "docs/"],
+  "files": ["bin/", "src/", "templates/", "examples/", "index.js", "cordis.patch.yml", "README.md", "SETUP.md", "LICENSE", "docs/"],
   "scripts": { "test": "node --test test/*.test.mjs" },
   "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },
   "peerDependencies": { "@deepseek-ai/dsh-tools": "0.2.1-rc.2" },
