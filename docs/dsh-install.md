@@ -11,10 +11,10 @@
 本版预定固定下载地址如下；只有对应 Release 及校验和实际发布并核验后，安装口令才可对外使用：
 
 ```text
-https://github.com/piggy00544/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz
+https://github.com/oxmumu3/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz
 ```
 
-> 请阅读 https://github.com/piggy00544/ai-twin-starter 的 README，安装并启用 https://github.com/piggy00544/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz ，按“准备分身材料→蒸馏项目能力→连接消息通道→设置权限”的顺序帮我搭分身。先盘点我选定目录的元数据，等我选材后再读正文，整理私有材料包并保留来源；令牌留在本地，连接先做只读核验，再做权限分流 dry run。暂不对外发送、执行业务或启动定时服务。
+> 请阅读 https://github.com/oxmumu3/ai-twin-starter 的 README，安装并启用 https://github.com/oxmumu3/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz ，按“准备分身材料→蒸馏项目能力→连接消息通道→设置权限”的顺序帮我搭分身。先盘点我选定目录的元数据，等我选材后再读正文，整理私有材料包并保留来源；令牌留在本地，连接先做只读核验，再做权限分流 dry run。暂不对外发送、执行业务或启动定时服务。
 
 宿主的正式工具调用如下。先 `list_bundles` 取得已安装的准确包名，避免重复安装或擅自卸载旧版。
 
@@ -23,7 +23,7 @@ https://github.com/piggy00544/ai-twin-starter/releases/download/v0.3.0/dsh-agent
 ```
 
 ```json
-{"action":"install_bundle","target":"https://github.com/piggy00544/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz","enabled":true}
+{"action":"install_bundle","target":"https://github.com/oxmumu3/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz","enabled":true}
 ```
 
 以上是 `plugin_manager` 的参数。当前宿主接受 npm 包、Git 地址、HTTP(S) `.tgz` 及本地绝对路径。推荐固定版本 Release 的预构建 `.tgz`，同时核对 Release 中的 `SHA256SUMS`；本包没有安装时脚本。正式包名可从同一 Release 的 `package.json` 核对。

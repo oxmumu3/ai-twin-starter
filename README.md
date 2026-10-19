@@ -17,11 +17,11 @@
 
 其他 Agent：
 
-> 阅读 https://github.com/piggy00544/ai-twin-starter ，下载项目，按 SETUP.md 带我准备材料、蒸馏分身、连接通道、设定权限，先完成只读验收，不发送消息。
+> 阅读 https://github.com/oxmumu3/ai-twin-starter ，下载项目，按 SETUP.md 带我准备材料、蒸馏分身、连接通道、设定权限，先完成只读验收，不发送消息。
 
 DeepSeek Harness：
 
-> 安装并启用 https://github.com/piggy00544/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz ，按运行手册带我完成准备材料、蒸馏、通道和权限四步，先跑只读验收。
+> 安装并启用 https://github.com/oxmumu3/ai-twin-starter/releases/download/v0.3.0/dsh-agent-twin-0.3.0.tgz ，按运行手册带我完成准备材料、蒸馏、通道和权限四步，先跑只读验收。
 
 首次由你选定可读取范围，并完成自己的 Slack 授权和必要的身份/范围设置。不要在对话中粘贴 token。免开发指这些已实现步骤不要求你编写程序；不代表免授权、没有材料也能复制能力，或安装后自动常驻。
 
@@ -36,7 +36,7 @@ DeepSeek Harness：
 要求 Node.js 22+。通用 CLI 使用 Node 内置模块，不需要另外购买模型 API。下面的命令由 Agent 执行，用户无需手写提案。
 
 ```sh
-git clone https://github.com/piggy00544/ai-twin-starter.git
+git clone https://github.com/oxmumu3/ai-twin-starter.git
 cd ai-twin-starter
 node bin/agent-twin.mjs init --cwd /absolute/path/to/your/project
 node bin/agent-twin.mjs materials-inventory --cwd /absolute/path/to/your/project --root .
@@ -49,7 +49,7 @@ Agent 用 prepare 返回的真实内容组织 `{project, materials, gaps}`，写
 
 DSH 插件提供同一组流程，使用宿主当前项目目录并尊重只读/工作区权限。[安装说明](docs/dsh-install.md)列出宿主版本和操作。
 
-DSH 有官方提供的[自定义插件市场功能](https://deepseek-harness.github.io/deepseek-harness/guide/plugin-market)。本项目提供[自托管索引](https://raw.githubusercontent.com/piggy00544/ai-twin-starter/main/market/index.json)，可以添加到该发现页；这不代表本项目经过官方统一审核或收录。直接安装固定版本 `.tgz` 不需要先添加市场。
+DSH 有官方提供的[自定义插件市场功能](https://deepseek-harness.github.io/deepseek-harness/guide/plugin-market)。本项目提供[自托管索引](https://raw.githubusercontent.com/oxmumu3/ai-twin-starter/main/market/index.json)，可以添加到该发现页；这不代表本项目经过官方统一审核或收录。直接安装固定版本 `.tgz` 不需要先添加市场。
 
 ## 版本与验收边界
 
