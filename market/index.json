@@ -20,18 +20,18 @@
         "zh": "从零散项目组织私有材料与缺口，保留原始出处蒸馏知识，核验Slack只读准入及权限分流。"
       },
       "author": "牛村木木山",
-      "homepage": "https://github.com/piggy00544/ai-twin-starter#readme",
+      "homepage": "https://github.com/oxmumu3/ai-twin-starter#readme",
       "repository": {
-        "url": "https://github.com/piggy00544/ai-twin-starter"
+        "url": "https://github.com/oxmumu3/ai-twin-starter"
       },
       "versions": [
         {
           "version": "0.3.0",
-          "publishTimestamp": 1792393200,
+          "publishTimestamp": 1792393555,
           "source": {
             "type": "git",
-            "url": "https://github.com/piggy00544/ai-twin-starter",
-            "commit": "a2cebe7d27ae037d4761fe6468162c57885776f2"
+            "url": "https://github.com/oxmumu3/ai-twin-starter",
+            "commit": "40a8adc18de6a3f508888150076514172ccb7620"
           },
           "engines": {
             "dsh": "0.2.1-rc.2"
@@ -42,7 +42,7 @@
           "publishTimestamp": 1792391340,
           "source": {
             "type": "git",
-            "url": "https://github.com/piggy00544/ai-twin-starter",
+            "url": "https://github.com/oxmumu3/ai-twin-starter",
             "commit": "34e82e8ab7db4a0667198f1dba97a590abb17d45"
           },
           "engines": {
