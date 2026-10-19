@@ -1,23 +1,23 @@
 {
   "format": 1,
   "title": {
-    "en": "Distilled AI Twin",
-    "zh": "蒸馏分身"
+    "en": "Agent Twin Setup",
+    "zh": "AI分身搭建"
   },
   "description": {
-    "en": "Private project distillation, read-only Slack checks and permission dry runs.",
-    "zh": "从已有项目蒸馏分身，连接通道做只读核验，再验收权限分流。"
+    "en": "Prepare project materials, distill a twin, check Slack and verify permissions.",
+    "zh": "准备分身材料、蒸馏分身、连接通道、设定权限。"
   },
   "plugins": [
     {
       "name": "dsh-agent-twin",
       "title": {
-        "en": "Distilled AI Twin",
-        "zh": "蒸馏分身"
+        "en": "Agent Twin Setup",
+        "zh": "AI分身搭建"
       },
       "description": {
-        "en": "Distill explicitly selected project files into private sourced cards, verify Slack read access, and run permission routing without sending or business actions.",
-        "zh": "显式选材提炼私有来源卡片，核验Slack只读准入，验收权限分流；不外发、不执行业务。"
+        "en": "Organize scattered private project materials with evidence and gaps, distill source-backed cards, probe Slack read access and dry-run permission routing.",
+        "zh": "从零散项目组织私有材料与缺口，保留原始出处蒸馏知识，核验Slack只读准入及权限分流。"
       },
       "author": "牛村木木山",
       "homepage": "https://github.com/piggy00544/ai-twin-starter#readme",
@@ -25,6 +25,18 @@
         "url": "https://github.com/piggy00544/ai-twin-starter"
       },
       "versions": [
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1792393200,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/piggy00544/ai-twin-starter",
+            "commit": "a2cebe7d27ae037d4761fe6468162c57885776f2"
+          },
+          "engines": {
+            "dsh": "0.2.1-rc.2"
+          }
+        },
         {
           "version": "0.2.0",
           "publishTimestamp": 1792391340,
