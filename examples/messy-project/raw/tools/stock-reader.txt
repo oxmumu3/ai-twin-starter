@@ -1,0 +1,7 @@
+Tool contract: stock-count.mjs
+Status: available as a local, tested read-only demo command, not connected to a real workshop.
+Run: node tools/stock-count.mjs stock.csv
+Input: UTF-8 CSV with exactly item,counted,reserved columns; nonnegative integer counts and reserved <= counted.
+Output: JSON with item count, counted total, reserved total and usable total.
+The command reads only the explicitly supplied CSV and has no network, purchasing or inventory-write operation.
+A live stock-system connector still needs to be connected; automatic purchasing would need development and separate authorization.

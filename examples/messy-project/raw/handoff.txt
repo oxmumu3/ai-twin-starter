@@ -1,0 +1,5 @@
+Existing handoff bundle, kept brief and incomplete.
+Find the project purpose and definitions in loose-notes.txt.
+Find one corrected report in old/last-week.md and the local tool contract in tools/stock-reader.txt.
+The repeatable review sequence and the rule for stopping when totals disagree have not been written down.
+The legacy PDF is an old reference; confirm and convert any relevant text before treating it as a current source.

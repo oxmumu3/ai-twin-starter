@@ -1,0 +1,5 @@
+This is an entirely fictional workshop stock-summary project.
+The weekly summary helps the workshop decide which items need a stock check.
+Usable stock means counted units minus units reserved for an open repair.
+A stock change is not proof of demand; receipts and counting corrections can also change stock.
+Current scope is read-only summaries. Purchasing and inventory edits require the owner.

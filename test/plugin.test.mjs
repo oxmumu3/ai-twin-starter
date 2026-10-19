@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -53,10 +53,11 @@ test('starter exposes the host adapter before claiming installation support', as
 test('mount registers one tool with no path argument and creates no workspace', async t => {
   const f = await fixture(t);
   assert.equal(f.tool.name, 'agent_twin');
-  assert.deepEqual(Object.keys(f.tool.parameters.properties), ['operation', 'entries', 'batchId', 'cards']);
+  assert.deepEqual(Object.keys(f.tool.parameters.properties), ['operation', 'roots', 'entries', 'batchId', 'packet', 'cards']);
   assert.deepEqual(f.tool.parameters.properties.operation.enum, [
     'init', 'status', 'runbook', 'distill_prepare', 'distill_apply', 'distill_status', 'distill_refresh', 'knowledge_read',
     'channel_probe', 'channel_status', 'channel_tick',
+    'materials_inventory', 'materials_prepare', 'materials_apply', 'materials_status', 'materials_distill',
   ]);
   assert.deepEqual(await readdir(f.cwd), []);
 });
@@ -339,4 +340,134 @@ test('knowledge_read uses the actual example and excludes candidates and changed
   const changed = await f.execute({ operation: 'knowledge_read' });
   assert.deepEqual(changed.cards, []);
   assert.ok(changed.staleCardIds.includes('verified-request-workflow'));
+});
+
+test('materials inventory is bounded metadata only and works in a read-only workspace', async t => {
+  const f = await fixture(t);
+  await mkdir(join(f.cwd, 'project'));
+  await writeFile(join(f.cwd, 'project/notes.md'), 'SELECTED_LATER_PRIVATE_TEXT\n');
+  await writeFile(join(f.cwd, 'outside-selection.md'), 'UNSELECTED_PRIVATE_TEXT\n');
+  f.setPolicy({ mode: 'read-only', workspaceRoot: f.cwd });
+  const before = await readdir(f.cwd);
+  const inventory = await f.execute({ operation: 'materials_inventory', roots: ['project'] });
+  const serialized = JSON.stringify(inventory);
+  assert.ok(serialized.includes('notes.md'));
+  assert.ok(!serialized.includes('SELECTED_LATER_PRIVATE_TEXT'));
+  assert.ok(!serialized.includes('UNSELECTED_PRIVATE_TEXT'));
+  assert.deepEqual(await readdir(f.cwd), before);
+});
+
+test('materials reads refuse an absent policy and any current directory outside the host sandbox root', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.cwd, 'notes.md'), 'private source\n');
+  for (const policy of [
+    undefined,
+    { mode: 'unknown', workspaceRoot: f.cwd },
+    { mode: 'read-only' },
+    { mode: 'read-only', workspaceRoot: join(f.cwd, 'foreign-root') },
+    { mode: 'workspace-write', workspaceRoot: join(f.cwd, 'foreign-root') },
+  ]) {
+    f.setPolicy(policy);
+    for (const args of [{ operation: 'materials_inventory', roots: ['.'] }, { operation: 'materials_status' }]) {
+      await assert.rejects(f.execute(args), /policy|sandbox|root|workspace|范围/i);
+    }
+  }
+  assert.deepEqual(await readdir(f.cwd), ['notes.md']);
+});
+
+test('materials input validation rejects model paths, tokens, unrelated fields and unsafe inventory roots', async t => {
+  const f = await fixture(t);
+  for (const args of [
+    { operation: 'materials_inventory' },
+    { operation: 'materials_inventory', roots: [] },
+    { operation: 'materials_prepare' },
+    { operation: 'materials_prepare', entries: [] },
+    { operation: 'materials_prepare', entries: ['notes.md'], cwd: '/tmp/foreign' },
+    { operation: 'materials_apply', packet: {} },
+    { operation: 'materials_apply', batchId: 'batch', packet: {}, token: 'never-accept' },
+    { operation: 'materials_status', roots: ['.'] },
+    { operation: 'materials_distill', entries: ['notes.md'] },
+  ]) {
+    await assert.rejects(f.execute(args), /argument|parameter|operation|roots|entries|batchId|packet|field|cwd|token/i);
+  }
+  for (const roots of [['..'], ['/tmp'], ['../foreign']]) {
+    await assert.rejects(f.execute({ operation: 'materials_inventory', roots }), /relative|root|outside|path|parent|范围|目录|路径|travers/i);
+  }
+  const outside = await realpath(await mkdtemp(join(tmpdir(), 'ai-twin-inventory-outside-')));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(join(outside, 'outside.md'), 'PRIVATE_OUTSIDE_MARKER\n');
+  await symlink(outside, join(f.cwd, 'linked'));
+  await assert.rejects(f.execute({ operation: 'materials_inventory', roots: ['linked'] }), /symlink|symbolic|link|链接/i);
+});
+
+test('material preparation writes obey read-only, missing and unknown sandbox policies', async t => {
+  const f = await fixture(t);
+  await f.execute({ operation: 'init' });
+  const packet = { project: { title: 'test', summary: '', sourceRefs: [] }, materials: [], gaps: [] };
+  for (const policy of [{ mode: 'read-only', workspaceRoot: f.cwd }, undefined, { mode: 'unknown', workspaceRoot: f.cwd }]) {
+    f.setPolicy(policy);
+    for (const args of [
+      { operation: 'materials_prepare', entries: ['notes.md'] },
+      { operation: 'materials_apply', batchId: 'not-a-live-batch', packet },
+      { operation: 'materials_distill' },
+    ]) {
+      await assert.rejects(f.execute(args), /policy|read-only|sandbox/i);
+    }
+  }
+});
+
+test('the real materials module prepares an explicit packet before creating a distillation batch', async t => {
+  const f = await fixture(t);
+  await f.execute({ operation: 'init' });
+  await writeFile(join(f.cwd, 'scattered-notes.md'), 'Synthetic project: handle requests with evidence.\nBefore delivery, check the source and authorized destination.\nThe reporting connector still needs authorization.\n');
+  await writeFile(join(f.cwd, 'not-selected.md'), 'DO_NOT_READ_OR_COPY_THIS\n');
+  const prepared = await f.execute({ operation: 'materials_prepare', entries: ['scattered-notes.md'] });
+  assert.equal(prepared.prepared, true);
+  assert.equal(prepared.sources.length, 1);
+  assert.equal(prepared.sources[0].path, 'scattered-notes.md');
+  assert.ok(!JSON.stringify(prepared).includes('DO_NOT_READ_OR_COPY_THIS'));
+  const sourceId = prepared.sources[0].sourceId;
+  const sourceRefs = [{ sourceId, startLine: 1, endLine: 2 }];
+  const packet = {
+    project: { title: 'Synthetic request project', summary: 'Handle requests with evidence.', sourceRefs },
+    materials: [
+      { id: 'delivery-rule', kind: 'workflow', title: 'Delivery rule', summary: 'Check source and authorized destination before delivery.', sourceRefs, selectedForDistillation: true },
+      { id: 'reporting-tool', kind: 'tool', title: 'Reporting connector', summary: 'The reporting connector needs authorization.', sourceRefs: [{ sourceId, startLine: 3, endLine: 3 }], selectedForDistillation: false, toolStatus: 'needs_connection' },
+    ],
+    gaps: [{ id: 'missing-authorization', description: 'Ask the owner to authorize the reporting connector.' }],
+  };
+  await assert.rejects(f.execute({ operation: 'materials_apply', batchId: prepared.batchId, packet: { ...packet, unapproved: true } }), /additional|unknown|unexpected|property|properties|field|格式|字段/i);
+  const missingToolStatus = structuredClone(packet);
+  delete missingToolStatus.materials[1].toolStatus;
+  await assert.rejects(f.execute({ operation: 'materials_apply', batchId: prepared.batchId, packet: missingToolStatus }), /toolStatus/i);
+  const misplacedToolStatus = structuredClone(packet);
+  misplacedToolStatus.materials[0].toolStatus = 'available';
+  await assert.rejects(f.execute({ operation: 'materials_apply', batchId: prepared.batchId, packet: misplacedToolStatus }), /toolStatus/i);
+  const applied = await f.execute({ operation: 'materials_apply', batchId: prepared.batchId, packet });
+  assert.equal(applied.materialized, true);
+  assert.equal(applied.distilled, false);
+  assert.equal(applied.toolsExecuted, false);
+  assert.equal(applied.privacy, 'private');
+  f.setPolicy({ mode: 'read-only', workspaceRoot: f.cwd });
+  const status = await f.execute({ operation: 'materials_status' });
+  assert.equal(status.canDistill, true);
+  assert.ok(!JSON.stringify(status).includes('Check source and authorized destination'));
+  const notDistilled = await f.execute({ operation: 'knowledge_read' });
+  assert.deepEqual(notDistilled.cards, []);
+  f.setPolicy({ mode: 'workspace-write', workspaceRoot: f.cwd });
+  const distilled = await f.execute({ operation: 'materials_distill' });
+  assert.equal(distilled.prepared, true);
+  assert.ok(distilled.sources.length > 0);
+  assert.ok(!JSON.stringify(distilled).includes('DO_NOT_READ_OR_COPY_THIS'));
+  await f.execute({ operation: 'distill_apply', batchId: distilled.batchId, cards: [{
+    id: 'evidence-delivery', kind: 'workflow', title: 'Evidence before delivery',
+    content: 'Check source and authorized destination before delivery.', when: 'Before delivering a request result',
+    limits: 'Documented synthetic workflow; does not prove connector execution or delivery.',
+    sourceRefs: [{ sourceId: distilled.sources[0].sourceId, startLine: 1, endLine: 1 }], status: 'documented',
+  }] });
+  assert.deepEqual((await f.execute({ operation: 'knowledge_read' })).cards.map(card => card.id), ['evidence-delivery']);
+  await writeFile(join(f.cwd, 'scattered-notes.md'), 'Changed source requires preparation again.\n');
+  assert.equal((await f.execute({ operation: 'materials_status' })).stale, true);
+  await assert.rejects(f.execute({ operation: 'materials_distill' }), /stale|changed|missing/i);
+  assert.deepEqual((await f.execute({ operation: 'knowledge_read' })).cards, []);
 });

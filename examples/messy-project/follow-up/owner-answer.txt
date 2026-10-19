@@ -1,0 +1,6 @@
+SCRIPTED FICTIONAL OWNER ANSWER FOR THIS DEMO, NOT A REAL USER QUOTE.
+Before explaining a weekly change, verify the week, the usable-stock definition and the row-to-total reconciliation.
+If totals disagree, stop the conclusion and check duplicate rows, missing items and double-subtracted reservations.
+For each weekly request: identify scope, run the approved read-only count, check totals, then deliver a short summary with the source and any unresolved gap.
+Escalate missing evidence, purchasing requests and stock edits to the owner.
+The old PDF is obsolete and outside this small trial; leave it listed as excluded from this trial, not converted or verified.

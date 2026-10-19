@@ -1,17 +1,46 @@
 {
   "name": "dsh-agent-twin",
-  "version": "0.2.0",
-  "description": "Distill a project into evidence-backed twin knowledge, probe a Slack channel, and verify permission routing.",
+  "version": "0.3.0",
+  "description": "Prepare scattered project materials, distill evidence-backed twin knowledge, probe Slack, and verify permissions.",
   "type": "module",
   "license": "MIT",
   "author": "牛村木木山",
-  "repository": { "type": "git", "url": "https://github.com/piggy00544/ai-twin-starter.git" },
-  "engines": { "node": ">=22" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piggy00544/ai-twin-starter.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "exports": "./index.js",
-  "bin": { "agent-twin": "./bin/agent-twin.mjs" },
-  "files": ["bin/", "src/", "templates/", "examples/", "index.js", "cordis.patch.yml", "README.md", "SETUP.md", "LICENSE", "docs/"],
-  "scripts": { "test": "node --test test/*.test.mjs" },
-  "dsh": { "manifestVersion": 1, "bundle": { "patch": "./cordis.patch.yml" } },
-  "peerDependencies": { "@deepseek-ai/dsh-tools": "0.2.1-rc.2" },
-  "devDependencies": { "@deepseek-ai/dsh-tools": "0.2.1-rc.2" }
+  "bin": {
+    "agent-twin": "./bin/agent-twin.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "examples/",
+    "index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "SETUP.md",
+    "LICENSE",
+    "docs/"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
+  }
 }
