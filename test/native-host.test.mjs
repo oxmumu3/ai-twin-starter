@@ -43,6 +43,11 @@ test('POST rejects foreign or opaque origins, cross-site markers, query strings,
   assert.equal((await route.fetch(request('/api/agent_twin/action',{...body,payload:{x:'x'.repeat(100000)}}))).status,413);
   assert.equal(f.commands.length,0);await host.close();
 });
+test('desktop custom-scheme requests require the same authority instead of equating opaque URL origins',async()=>{
+  const f=fixture(),host=createNativeHost(f.ctx,{service:f.service}),route=f.routes.get('/api/agent_twin/status');
+  assert.equal((await route.fetch(new Request('dsh-app://app/api/agent_twin/status',{headers:{Origin:'file://elsewhere'}}))).status,403);
+  assert.equal((await route.fetch(new Request('dsh-app://app/api/agent_twin/status',{headers:{Origin:'dsh-app://app'}}))).status,200);await host.close();
+});
 test('errors are generic and never return raw model/network credentials or payloads',async()=>{
   const f=fixture();f.service.command=async()=>{throw new Error('Bearer synthetic-private-api-key');};const host=createNativeHost(f.ctx,{service:f.service});
   const response=await f.routes.get('/api/agent_twin/action').fetch(request('/api/agent_twin/action',{action:'pause',payload:{},expectedRevision:1}));

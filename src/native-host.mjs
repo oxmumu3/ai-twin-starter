@@ -26,7 +26,7 @@ function noSecrets(value,depth=0){
 function sameOrigin(request){
   if(request.headers.get('Sec-Fetch-Site')==='cross-site')return false;
   const origin=request.headers.get('Origin');if(origin===null)return true;
-  try{return ['http:','https:','dsh-app:'].includes(new URL(request.url).protocol)&&new URL(origin).origin===new URL(request.url).origin&&origin!=='null';}catch{return false;}
+  try{const target=new URL(request.url),source=new URL(origin);return origin!=='null'&&['http:','https:','dsh-app:'].includes(target.protocol)&&source.protocol===target.protocol&&source.host===target.host&&!source.username&&!source.password&&['','/'].includes(source.pathname)&&!source.search&&!source.hash;}catch{return false;}
 }
 function get(ctx,name){try{return ctx.get(name,false);}catch{return undefined;}}
 function projects(ctx){
