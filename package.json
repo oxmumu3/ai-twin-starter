@@ -1,7 +1,7 @@
 {
   "name": "dsh-agent-twin",
-  "version": "0.3.0",
-  "description": "Prepare scattered project materials, distill evidence-backed twin knowledge, probe Slack, and verify permissions.",
+  "version": "0.4.0-preview.1",
+  "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
   "type": "module",
   "license": "MIT",
   "author": "牛村木木山",
@@ -10,9 +10,14 @@
     "url": "https://github.com/oxmumu3/ai-twin-starter.git"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13",
+    "dsh": "0.2.1-rc.2"
   },
-  "exports": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "agent-twin": "./bin/agent-twin.mjs"
   },
@@ -26,7 +31,14 @@
     "README.md",
     "SETUP.md",
     "LICENSE",
-    "docs/"
+    "docs/materials.md",
+    "docs/channel.md",
+    "docs/verification.md",
+    "docs/privacy.md",
+    "docs/dsh-install.md",
+    "docs/architecture.md",
+    "docs/distill.md",
+    "docs/native.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
@@ -35,12 +47,29 @@
     "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-general",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-api-session-controller"
+      ]
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2"
   }
 }
