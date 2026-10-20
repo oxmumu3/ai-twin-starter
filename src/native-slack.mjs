@@ -28,7 +28,7 @@ function cursorFor(config,cursor,maxTrackedThreads){
   const value=structuredClone(cursor);
   if(value.version===1)Object.assign(value,{version:2,threads:[],threadIndex:0,turn:'history',gaps:[]});
   if(!Array.isArray(value.threads)||value.threads.length>maxTrackedThreads||!Number.isInteger(value.threadIndex)||value.threadIndex<0||value.threadIndex>=Math.max(1,value.threads.length)||!['history','thread'].includes(value.turn)||!Array.isArray(value.gaps)||value.gaps.length>3||value.gaps.some(code=>!Object.hasOwn(THREAD_GAPS,code)))throw failure('invalid_cursor');
-  for(const row of value.threads)if(!object(row)||!ids.includes(row.channelId)||!TS.test(row.ts??'')||!TS.test(row.latest??'')||row.high!==undefined&&!TS.test(row.high)||row.next!==undefined&&(typeof row.next!=='string'||row.next.length>2000))throw failure('invalid_cursor');
+  for(const row of value.threads)if(!object(row)||!ids.includes(row.channelId)||!TS.test(row.ts??'')||!TS.test(row.latest??'')||row.checked!==undefined&&typeof row.checked!=='boolean'||row.high!==undefined&&!TS.test(row.high)||row.next!==undefined&&(typeof row.next!=='string'||row.next.length>2000))throw failure('invalid_cursor');
   if(new Set(value.threads.map(row=>`${row.channelId}:${row.ts}`)).size!==value.threads.length)throw failure('invalid_cursor');
   return value;
 }
@@ -69,7 +69,7 @@ export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetc
       if(!Number.isInteger(limit)||limit<1||limit>30)throw failure('invalid_limit');
       limit=Math.min(limit,15);
       const ids=channels(config,'in'),state=cursorFor(config,cursor,maxTrackedThreads);
-      const pack=(messages,hasMore=false)=>({messages,cursor:state,hasMore,gaps:state.gaps.map(code=>({code,message:THREAD_GAPS[code]})),threadCoverage:{status:state.gaps.length?'gap':state.threads.length?'ready':'not_started',tracked:state.threads.length,limit:maxTrackedThreads}});
+      const pack=(messages,hasMore=false)=>({messages,cursor:state,hasMore,gaps:state.gaps.map(code=>({code,message:THREAD_GAPS[code]})),threadCoverage:{status:state.gaps.length?'gap':state.threads.length?state.threads.every(thread=>thread.checked===true&&!thread.next)?'ready':'pending':'not_started',tracked:state.threads.length,limit:maxTrackedThreads}});
       const readingThread=state.turn==='thread'&&state.threads.length>0;
       const thread=readingThread?state.threads[state.threadIndex]:null;
       const id=thread?.channelId??ids[state.index],row=thread??state.channels[id];
@@ -86,7 +86,7 @@ export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetc
       const latest=baseline?(high==='0.000000'?`${Math.floor(new Date(now()).getTime()/1000)}.000000`:high):row.latest;
       if(thread){
         state.gaps=state.gaps.filter(code=>code==='thread_tracking_limit');
-        state.threads[state.threadIndex]=next?{channelId:id,ts:thread.ts,latest,high,next}:{channelId:id,ts:thread.ts,latest:high};
+        state.threads[state.threadIndex]=next?{channelId:id,ts:thread.ts,latest,high,next,checked:true}:{channelId:id,ts:thread.ts,latest:high,checked:true};
         if(!next){state.threadIndex=(state.threadIndex+1)%state.threads.length;state.turn='history';}
       }else{
         state.channels[id]=!baseline&&next?{latest,high,next}:{latest:baseline?latest:high};

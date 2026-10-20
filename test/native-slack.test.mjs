@@ -88,8 +88,8 @@ test('explicit Agent identities can collaborate while unknown bots and the twin 
 test('only newly observed roots become known threads and ordinary follow-ups are read from replies',async()=>{
   let historyCount=0;const {transport,calls}=adapter(({method})=>json(method==='conversations.replies'?{messages:[{type:'message',ts:'1002.000001',thread_ts:'1001.000001',user:'U111',text:'follow-up'}],has_more:false}:{messages:[{type:'message',ts:`${1000+historyCount++}.000001`,user:'U111',text:historyCount===1?'old root':'new root'}],has_more:false}));
   let read=await transport.read(config,{limit:5});assert.deepEqual(read.messages,[]);assert.equal(read.threadCoverage.tracked,0);
-  read=await transport.read(config,{cursor:read.cursor,limit:5});assert.equal(read.messages[0].text,'new root');assert.equal(read.threadCoverage.tracked,1);
-  read=await transport.read(config,{cursor:read.cursor,limit:5});assert.equal(calls.at(-1).method,'conversations.replies');assert.equal(calls.at(-1).params.ts,'1001.000001');assert.equal(calls.at(-1).params.oldest,'1001.000001');assert.equal(read.messages[0].text,'follow-up');assert.equal(read.messages[0].threadId,'1001.000001');
+  read=await transport.read(config,{cursor:read.cursor,limit:5});assert.equal(read.messages[0].text,'new root');assert.equal(read.threadCoverage.tracked,1);assert.equal(read.threadCoverage.status,'pending');
+  read=await transport.read(config,{cursor:read.cursor,limit:5});assert.equal(calls.at(-1).method,'conversations.replies');assert.equal(calls.at(-1).params.ts,'1001.000001');assert.equal(calls.at(-1).params.oldest,'1001.000001');assert.equal(read.messages[0].text,'follow-up');assert.equal(read.messages[0].threadId,'1001.000001');assert.equal(read.threadCoverage.status,'ready');
   assert.ok(calls.every(call=>call.method!=='conversations.replies'||call.params.ts!=='1000.000001'));
 });
 test('a known thread keeps original oldest and next_cursor through multiple reply pages and serialized restart',async()=>{
