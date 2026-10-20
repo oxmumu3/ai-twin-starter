@@ -51,7 +51,12 @@ function model(calls) {
             status: "documented",
           })),
         };
-      if (kind === "test_candidate" || kind === "test_rules")
+      if (kind === "test_candidate")
+        return {
+          passed: true,
+          cases: input.cards.map((card) => ({ cardId: card.id, passed: true })),
+        };
+      if (kind === "test_rules")
         return { passed: true, cases: [{ passed: true }] };
       if (kind === "task")
         return {
@@ -184,7 +189,10 @@ test("unauthorized requests never read private cards into executor; approved rep
   let s = await f.service.snapshot();
   const denied = s.tasks.at(-1);
   await c("task_step", { taskId: denied.id });
-  assert.equal(f.calls.filter((c) => c.kind === "task").length, 0);
+  assert.equal(
+    f.calls.filter((c) => c.kind === "task" && c.input.request.scope).length,
+    0,
+  );
   await c("submit_request", {
     senderId: "U1",
     destinationId: "C1",
@@ -198,7 +206,7 @@ test("unauthorized requests never read private cards into executor; approved rep
   await c("task_step", { taskId: task.id });
   s = await f.service.snapshot();
   assert.equal(s.tasks.at(-1).status, "needs_approval");
-  const call = f.calls.find((c) => c.kind === "task");
+  const call = f.calls.find((c) => c.kind === "task" && c.input.request.scope);
   assert.equal(call.input.cards.length, 1);
   assert.equal(call.input.cards[0].kind, "knowledge");
   assert.equal(call.input.sources, undefined);
@@ -538,4 +546,352 @@ test("owner alerts contain routing metadata and receipt proof, never private mat
   assert.ok(!notice.text.includes("Synthetic project background."));
   assert.ok(!notice.text.includes("Synthetic checked response"));
   assert.equal(s.tasks.at(-1).status, "needs_approval");
+});
+test("multi-scope inbound routing receives only request and granted scope IDs and reaches a real reply", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  await c("save_identity", {
+    id: "alice",
+    senderId: "U1",
+    name: "Alice",
+    role: "colleague",
+    scopes: ["knowledge", "workflow"],
+    actions: ["read", "draft", "reply"],
+    destinationIds: ["C1"],
+    enabled: true,
+  });
+  await c("save_rules", {
+    intervalMinutes: 10,
+    maxTasksPerTick: 5,
+    requireApproval: false,
+    ownerDestinationId: "D1",
+  });
+  await c("test_rules");
+  await c("enable");
+  const base = f.executor.run;
+  f.executor.run = async (payload) => {
+    if (payload.kind === "route") {
+      f.calls.push(payload);
+      return { scope: "knowledge" };
+    }
+    return base(payload);
+  };
+  f.transport.read = async () => ({
+    messages: [
+      {
+        senderId: "U1",
+        destinationId: "C1",
+        text: "What is the project background?",
+        scope: null,
+        action: "reply",
+        messageId: "inbound-multi",
+      },
+    ],
+    cursor: { page: 1 },
+  });
+  await c("tick");
+  let s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "ready");
+  const route = f.calls.find((call) => call.kind === "route");
+  assert.deepEqual(Object.keys(route.input).sort(), [
+    "allowedScopes",
+    "request",
+  ]);
+  assert.deepEqual(route.input.allowedScopes, ["knowledge", "workflow"]);
+  assert.equal(route.input.cards, undefined);
+  assert.equal(
+    f.calls.find((call) => call.kind === "task" && call.input.request.scope)
+      .input.cards.length,
+    1,
+  );
+  await c("tick");
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "sent");
+  assert.equal(f.calls.filter((call) => call.kind === "route").length, 1);
+  assert.equal(s.tasks.length, 1);
+});
+test("routing rejects unknown, expired, unreadable identities and malformed or ungranted model choices", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  await c("save_identity", {
+    id: "alice",
+    senderId: "U1",
+    name: "Alice",
+    role: "colleague",
+    scopes: ["knowledge", "workflow"],
+    actions: ["read", "draft", "reply"],
+    destinationIds: ["C1"],
+    enabled: true,
+  });
+  await c("test_rules");
+  await c("enable");
+  let choice = { scope: "outside-grant" };
+  let routeCalls = 0;
+  const base = f.executor.run;
+  f.executor.run = async (payload) =>
+    payload.kind === "route" ? (routeCalls++, choice) : base(payload);
+  let sender = "U1",
+    messageId = "bad-route-1";
+  f.transport.read = async () => ({
+    messages: [
+      {
+        senderId: sender,
+        destinationId: "C1",
+        text: "Route this request",
+        scope: null,
+        messageId,
+      },
+    ],
+    cursor: { messageId },
+  });
+  await c("tick");
+  let s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "blocked");
+  assert.equal(
+    f.calls.filter((call) => call.kind === "task" && call.input.request.scope)
+      .length,
+    0,
+  );
+  choice = { scope: "knowledge", extra: "malformed" };
+  messageId = "bad-route-2";
+  await c("tick");
+  assert.equal(routeCalls, 2);
+  sender = "UNKNOWN";
+  messageId = "unknown-route";
+  await c("tick");
+  assert.equal(routeCalls, 2);
+  await c("save_identity", {
+    id: "alice",
+    senderId: "U1",
+    name: "Alice",
+    role: "colleague",
+    scopes: ["knowledge", "workflow"],
+    actions: ["draft", "reply"],
+    destinationIds: ["C1"],
+    enabled: true,
+  });
+  sender = "U1";
+  messageId = "unreadable-route";
+  await c("tick");
+  assert.equal(routeCalls, 2);
+  await c("save_identity", {
+    id: "alice",
+    senderId: "U1",
+    name: "Alice",
+    role: "colleague",
+    scopes: ["knowledge", "workflow"],
+    actions: ["read", "draft", "reply"],
+    destinationIds: ["C1"],
+    enabled: true,
+    expiresAt: "2000-01-01T00:00:00.000Z",
+  });
+  messageId = "expired-route";
+  await c("tick");
+  assert.equal(routeCalls, 2);
+});
+test("single-scope inbound skips routing and channel coverage gaps pause without losing its cursor", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  await c("enable");
+  f.transport.read = async () => ({
+    messages: [
+      {
+        senderId: "U1",
+        destinationId: "C1",
+        text: "Summarize",
+        scope: null,
+        messageId: "single",
+      },
+    ],
+    cursor: { page: 1 },
+  });
+  await c("tick");
+  let s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "needs_approval");
+  assert.equal(f.calls.filter((call) => call.kind === "route").length, 0);
+  f.transport.read = async () => ({
+    messages: [],
+    cursor: { page: 999 },
+    gaps: [
+      {
+        code: "thread_permission_required",
+        message: "raw unsafe details must not be retained",
+      },
+    ],
+    threadCoverage: { tracked: 1, limit: 20, status: "gap" },
+  });
+  await c("tick");
+  s = await f.service.snapshot();
+  assert.equal(s.service.enabled, false);
+  assert.equal(s.service.everEnabled, true);
+  assert.deepEqual(s.channel.cursor, { page: 1 });
+  assert.equal(s.readiness.channels, false);
+  assert.equal(s.channel.gaps[0].code, "thread_permission_required");
+  assert.ok(!s.channel.gaps[0].message.includes("unsafe"));
+});
+test("replayed sent messages preserve terminal evidence after source changes and cannot regenerate or resend", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  await c("enable");
+  const request = {
+    senderId: "U1",
+    destinationId: "C1",
+    text: "Summary",
+    scope: "knowledge",
+    action: "reply",
+    messageId: "terminal-replay",
+  };
+  await c("submit_request", request);
+  let s = await f.service.snapshot();
+  const id = s.tasks.at(-1).id;
+  await c("task_step", { taskId: id });
+  await c("approve", { taskId: id, destinationId: "C1" });
+  await c("task_step", { taskId: id });
+  assert.equal((await f.service.snapshot()).tasks.at(-1).status, "sent");
+  await writeFile(
+    join(f.cwd, "notes.md"),
+    "Changed source after a sent reply.\n",
+  );
+  await c("submit_request", request);
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "sent");
+  f.transport.read = async () => ({
+    messages: [{ ...request, tenantId: "T1" }],
+  });
+  await c("tick");
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "sent");
+  await assert.rejects(
+    c("regenerate", { taskId: id }),
+    (e) => e.code === "delivery_unresolved",
+  );
+  await assert.rejects(
+    c("deny", { taskId: id }),
+    (e) => e.code === "delivery_already_attempted",
+  );
+  const before = f.delivery.filter((d) => !d.text.startsWith("[AI")).length;
+  await c("task_step", { taskId: id });
+  assert.equal(
+    f.delivery.filter((d) => !d.text.startsWith("[AI")).length,
+    before,
+  );
+});
+test("project structure is visible to inventory and enters selected organization sources", async (t) => {
+  const f = await fixture(t),
+    c = (a, p) => f.service.command(a, p);
+  await c("configure_project", {
+    projectId: "p1",
+    sessionId: "s1",
+    cwd: f.cwd,
+    title: "Structured project",
+    goal: "A stated owner goal",
+    mechanism: "A stated owner mechanism",
+  });
+  let s = await f.service.snapshot();
+  assert.equal(s.project.structure.root, "twin-project");
+  assert.ok(s.project.structure.created.includes("PROJECT.md"));
+  await c("inventory", { roots: ["twin-project"] });
+  s = await f.service.snapshot();
+  assert.ok(
+    s.materials.inventory.entries.some(
+      (entry) =>
+        entry.path === "twin-project/PROJECT.md" && entry.kind === "candidate",
+    ),
+  );
+  await c("select_sources", { entries: ["twin-project/PROJECT.md"] });
+  await c("organize");
+  s = await f.service.snapshot();
+  assert.equal(s.materials.status, "ready");
+  assert.equal(
+    f.calls.find((call) => call.kind === "organize").input.sources[0].path,
+    "twin-project/PROJECT.md",
+  );
+});
+test("candidate trial generates an inspectable draft without sending or enabling, and rejects tool calls", async (t) => {
+  const f = await fixture(t),
+    c = (a, p) => f.service.command(a, p);
+  await c("configure_project", {
+    projectId: "p1",
+    sessionId: "s1",
+    cwd: f.cwd,
+    title: "Trial project",
+    goal: "Produce summaries",
+    mechanism: "Use sources",
+  });
+  await c("select_sources", { entries: ["notes.md", "flow.md"] });
+  await c("organize");
+  await c("distill");
+  await c("test_candidate", { prompt: "Give a bounded project example" });
+  let s = await f.service.snapshot();
+  assert.equal(s.ability.candidate.test.passed, true);
+  assert.equal(
+    s.ability.candidate.test.prompt,
+    "Give a bounded project example",
+  );
+  assert.ok(s.ability.candidate.test.output.length);
+  assert.equal(s.service.enabled, false);
+  assert.equal(s.service.everEnabled, false);
+  assert.equal(s.tasks.length, 0);
+  assert.equal(s.outbox.length, 0);
+  assert.equal(f.delivery.length, 0);
+  const trial = f.calls.find((call) => call.kind === "task");
+  assert.equal(trial.input.request.action, "draft");
+  assert.equal(trial.input.sources, undefined);
+  assert.equal(trial.input.materials, undefined);
+  assert.deepEqual(trial.input.limits, {
+    toolsAllowed: [],
+    externalSend: false,
+  });
+  const base = f.executor.run;
+  f.executor.run = async (p) =>
+    p.kind === "task"
+      ? {
+          output: "Should not be accepted",
+          toolCalls: [{ name: "shell", command: "unsafe" }],
+        }
+      : base(p);
+  await c("test_candidate");
+  s = await f.service.snapshot();
+  assert.equal(s.ability.candidate.test.passed, false);
+  assert.equal(s.ability.candidate.test.output, null);
+  assert.equal(s.ability.candidate.test.reason, "tool_execution_not_granted");
+  await assert.rejects(
+    c("adopt_candidate"),
+    (e) => e.code === "candidate_untested",
+  );
+  f.executor.run = async (p) => (p.kind === "task" ? {} : base(p));
+  await c("test_candidate");
+  s = await f.service.snapshot();
+  assert.equal(s.ability.candidate.test.passed, false);
+  assert.equal(s.ability.candidate.test.output, null);
+});
+test("uncertain task receipt checks preserve the original thread destination", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  const original = f.transport.send;
+  f.transport.send = async (p) =>
+    p.text.startsWith("[AI") ? original(p) : { status: "unknown" };
+  let checked;
+  f.transport.check = async (p) => ((checked = p), { status: "unknown" });
+  await c("enable");
+  await c("submit_request", {
+    senderId: "U1",
+    destinationId: "C1",
+    text: "A threaded question",
+    scope: "knowledge",
+    action: "reply",
+    threadId: "1710000000.000001",
+  });
+  let s = await f.service.snapshot();
+  const id = s.tasks.at(-1).id;
+  await c("task_step", { taskId: id });
+  await c("approve", { taskId: id, destinationId: "C1" });
+  await c("task_step", { taskId: id });
+  await c("check_delivery", { taskId: id });
+  assert.equal(checked.threadId, "1710000000.000001");
+  s = await f.service.snapshot();
+  assert.equal(
+    s.outbox.find((entry) => entry.id === s.tasks.at(-1).deliveryId).threadId,
+    "1710000000.000001",
+  );
 });

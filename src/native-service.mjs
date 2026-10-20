@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createTwinStore } from "./native-store.mjs";
 import { initWorkspace } from "./workspace.mjs";
+import { ensureProjectStructure } from "./project-structure.mjs";
 import {
   inventoryMaterials,
   prepareMaterials,
@@ -334,6 +335,10 @@ export function createTwinService({
       !s.channel.config?.allowedDestinationIds.includes(request.destinationId)
     )
       return "destination_not_allowlisted";
+    if (request.scope === "__explicit_scope_required__")
+      return "explicit_scope_required";
+    if (request.scope === "__scope_routing_unavailable__")
+      return "scope_routing_unavailable";
     const identity = grantFor(s, request);
     if (!identity) return "identity_not_granted";
     if (
@@ -362,6 +367,8 @@ export function createTwinService({
       transportReady() &&
       !!s.channel.config &&
       s.channel.probe?.status === "verified" &&
+      s.channel.probe.readVerified === true &&
+      !s.channel.gaps?.length &&
       s.channel.probe.configFingerprint === configHash(s) &&
       s.channel.delivery?.status === "sent" &&
       s.channel.delivery.configFingerprint === configHash(s) &&
@@ -379,6 +386,9 @@ export function createTwinService({
       ...s.channel.config,
       tenantId: s.channel.probe.identity.tenantId,
       actorId: s.channel.probe.identity.actorId,
+      ...(s.channel.probe.identity.botId
+        ? { botId: s.channel.probe.identity.botId }
+        : {}),
       allowedBotSenderIds: s.identities
         .filter(
           (identity) =>
@@ -480,6 +490,35 @@ export function createTwinService({
       destinationId: task.request.destinationId,
     });
   }
+  function deliveryEvidence(s, task) {
+    const deliveries = s.outbox.filter(
+      (entry) => entry.kind === "task" && entry.taskId === task.id,
+    );
+    return (
+      deliveries.find((entry) => entry.status === "sent") ??
+      deliveries.find((entry) =>
+        ["sending", "unknown"].includes(entry.status),
+      ) ??
+      null
+    );
+  }
+  function terminalReplay(s, task) {
+    return (
+      ["sent", "denied", "delivery_unknown", "failed", "sending"].includes(
+        task.status,
+      ) || Boolean(deliveryEvidence(s, task))
+    );
+  }
+  function deliveryNeedsReconcile(s) {
+    return s.tasks.some((task) => {
+      const evidence = deliveryEvidence(s, task);
+      return (
+        evidence &&
+        task.status !==
+          (evidence.status === "sent" ? "sent" : "delivery_unknown")
+      );
+    });
+  }
   function recoverDispatch(s) {
     for (const delivery of s.outbox) {
       if (delivery.status === "sending") {
@@ -496,6 +535,13 @@ export function createTwinService({
         task.status = "delivery_unknown";
         task.reason = "delivery_recovery_required";
         task.recoveredAt = at();
+      }
+      const evidence = deliveryEvidence(s, task);
+      if (evidence) {
+        task.status = evidence.status === "sent" ? "sent" : "delivery_unknown";
+        task.reason =
+          evidence.status === "sent" ? null : "delivery_recovery_required";
+        task.deliveryId = evidence.id;
       }
     }
   }
@@ -637,7 +683,8 @@ export function createTwinService({
       );
     if (
       s.outbox.some((d) => d.status === "sending") ||
-      s.tasks.some((t) => t.status === "sending")
+      s.tasks.some((t) => t.status === "sending") ||
+      deliveryNeedsReconcile(s)
     ) {
       try {
         s = await store.transaction(async (state) => {
@@ -887,6 +934,7 @@ export function createTwinService({
         accountFingerprint: accountHash(s.channel.probe.identity),
         configFingerprint: configHash(s),
         outputHash: hash(task.output),
+        ...(task.request.threadId ? { threadId: task.request.threadId } : {}),
       };
       s.outbox.push(delivery);
       task.deliveryId = delivery.id;
@@ -1021,6 +1069,29 @@ export function createTwinService({
       delivery.checkedAt = at();
     }
   }
+  function normalizedReadGaps(read) {
+    if (!Array.isArray(read.gaps)) return [];
+    if (read.gaps.length > 16)
+      return [
+        {
+          code: "channel_read_gap",
+          message: "The channel reported too many coverage gaps.",
+        },
+      ];
+    return read.gaps.map((gap) => ({
+      code: ["thread_permission_required", "thread_tracking_limit"].includes(
+        gap?.code,
+      )
+        ? gap.code
+        : "channel_read_gap",
+      message:
+        gap?.code === "thread_permission_required"
+          ? "Thread reading requires an additional authorized Slack permission."
+          : gap?.code === "thread_tracking_limit"
+            ? "The bounded thread tracking limit was reached; coverage is incomplete."
+            : "The channel reported incomplete incoming coverage.",
+    }));
+  }
   async function probe(s) {
     channelRequired("identity");
     channelRequired("read");
@@ -1058,13 +1129,16 @@ export function createTwinService({
       identity: {
         actorId: text(identity.actorId, "actor ID", 256),
         tenantId: text(identity.tenantId, "tenant ID", 256),
+        ...(identity.botId
+          ? { botId: text(identity.botId, "bot ID", 256) }
+          : {}),
       },
       configFingerprint: configHash(s),
       checkedAt: at(),
       readVerified: false,
     };
     const read = await transport.read(channelConfig(s), {
-      cursor: null,
+      cursor: s.service.everEnabled ? s.channel.cursor : null,
       limit: 1,
     });
     if (
@@ -1076,7 +1150,12 @@ export function createTwinService({
         "channel_invalid",
         "Transport did not return bounded normalized messages",
       );
-    s.channel.probe.readVerified = true;
+    s.channel.gaps = normalizedReadGaps(read);
+    s.channel.threadCoverage = object(read.threadCoverage)
+      ? clone(read.threadCoverage)
+      : null;
+    s.channel.probe.readVerified = s.channel.gaps.length === 0;
+    if (s.channel.gaps.length) s.channel.probe.status = "blocked";
     s.channel.probe.observedMessageCount = read.messages.length;
     s.channel.status = "delivery_required";
   }
@@ -1222,6 +1301,11 @@ export function createTwinService({
           }
           s.project = project;
           await ensureWorkspace(project.cwd);
+          s.project.structure = await ensureProjectStructure(project.cwd, {
+            title: project.title,
+            goal: project.goal,
+            mechanism: project.mechanism,
+          });
           log(
             s,
             at(),
@@ -1391,14 +1475,64 @@ export function createTwinService({
               "scope-boundary",
             ],
           });
+          const prompt = text(
+            payload.prompt ??
+              "请基于这些卡片完成一个小型工作示例：回答项目能提供什么帮助，并明确一个限制或需要主人决定的情况。只提供草稿，不执行任何外部操作。",
+            "candidate trial prompt",
+            8000,
+          );
+          const cases = Array.isArray(result.cases)
+            ? result.cases.slice(0, 100)
+            : [];
+          const audited =
+            result.passed === true &&
+            cases.length > 0 &&
+            cases.every((entry) => entry?.passed === true) &&
+            candidate.cards.every((card) =>
+              cases.some(
+                (entry) => entry.cardId === card.id && entry.passed === true,
+              ),
+            );
           candidate.test = {
-            passed: result.passed === true,
+            passed: false,
             fingerprint: hash(candidate.cards),
             checkedAt: at(),
-            cases: Array.isArray(result.cases)
-              ? result.cases.slice(0, 100)
-              : [],
+            cases,
+            prompt,
+            output: null,
+            outputFingerprint: null,
+            reason: audited ? null : "candidate_audit_failed",
           };
+          const documented = candidate.cards.filter(
+            (card) => card.status === "documented",
+          );
+          if (audited && documented.length) {
+            const trial = await run("task", {
+              request: { text: prompt, action: "draft" },
+              cards: clone(documented),
+              limits: { toolsAllowed: [], externalSend: false },
+              project: { title: s.project.title },
+            });
+            if (
+              trial.toolCalls !== undefined &&
+              (!Array.isArray(trial.toolCalls) || trial.toolCalls.length)
+            )
+              candidate.test.reason = "tool_execution_not_granted";
+            else {
+              try {
+                candidate.test.output = text(
+                  trial.output,
+                  "candidate trial output",
+                  12000,
+                );
+                candidate.test.outputFingerprint = hash(candidate.test.output);
+                candidate.test.passed = true;
+                candidate.test.reason = null;
+              } catch {
+                candidate.test.reason = "candidate_trial_output_invalid";
+              }
+            }
+          } else if (audited) candidate.test.reason = "no_documented_cards";
           await readPreparedSources(
             s.project.cwd,
             candidate.batchId,
@@ -1752,10 +1886,12 @@ export function createTwinService({
               "Enable the service before accepting requests",
             );
           const task = addRequest(s, payload);
-          const reason = taskReason(s, task, live);
-          if (reason) {
-            task.status = "blocked";
-            task.reason = reason;
+          if (!terminalReplay(s, task)) {
+            const reason = taskReason(s, task, live);
+            if (reason) {
+              task.status = "blocked";
+              task.reason = reason;
+            }
           }
           break;
         }
@@ -1797,7 +1933,10 @@ export function createTwinService({
         }
         case "deny": {
           const task = taskById(s, payload.taskId);
-          if (["sent", "delivery_unknown", "sending"].includes(task.status))
+          if (
+            ["sent", "delivery_unknown", "sending"].includes(task.status) ||
+            deliveryEvidence(s, task)
+          )
             throw issue(
               "delivery_already_attempted",
               "A sent or uncertain delivery cannot be erased by denying",
@@ -1809,7 +1948,10 @@ export function createTwinService({
         }
         case "regenerate": {
           const task = taskById(s, payload.taskId);
-          if (["sent", "delivery_unknown", "sending"].includes(task.status))
+          if (
+            ["sent", "delivery_unknown", "sending"].includes(task.status) ||
+            deliveryEvidence(s, task)
+          )
             throw issue(
               "delivery_unresolved",
               "Resolve the previous delivery before regenerating",
@@ -1842,6 +1984,7 @@ export function createTwinService({
               "delivery_missing",
               "There is no attempted delivery to check",
             );
+          if (delivery.status === "sent") break;
           channelRequired("check");
           await verifyAccount(s);
           if (
@@ -1859,6 +2002,13 @@ export function createTwinService({
               destinationId: delivery.destinationId,
               idempotencyKey: delivery.idempotencyKey,
               remoteId: delivery.remoteId,
+              ...(delivery.threadId
+                ? { threadId: delivery.threadId }
+                : delivery.kind === "task" &&
+                    delivery.taskId &&
+                    taskById(s, delivery.taskId).request.threadId
+                  ? { threadId: taskById(s, delivery.taskId).request.threadId }
+                  : {}),
               config: channelConfig(s),
             });
           } catch {
@@ -1941,13 +2091,27 @@ export function createTwinService({
           if (
             !object(read) ||
             !Array.isArray(read.messages) ||
-            read.messages.length > 100 ||
+            read.messages.length > budget ||
             Buffer.byteLength(JSON.stringify(read)) > 262144
           )
             throw issue(
               "channel_invalid",
               "Transport returned an invalid or oversized incoming batch",
             );
+          s.channel.gaps = normalizedReadGaps(read);
+          s.channel.threadCoverage = object(read.threadCoverage)
+            ? clone(read.threadCoverage)
+            : null;
+          if (s.channel.gaps.length) {
+            s.service.enabled = false;
+            log(
+              s,
+              at(),
+              "channel_read_gap",
+              "Incoming thread coverage is incomplete; service paused without advancing its cursor.",
+            );
+            break;
+          }
           for (const message of read.messages.slice(0, budget)) {
             if (message.senderId === s.channel.probe.identity.actorId) continue;
             if (
@@ -1959,9 +2123,51 @@ export function createTwinService({
             const identity = s.identities.find(
               (i) => i.enabled && i.senderId === message.senderId,
             );
-            let scope = message.scope;
-            if (!scope && identity?.scopes.length === 1)
+            const existingKey =
+              message.messageId &&
+              hash({
+                tenantId: s.channel.probe.identity.tenantId,
+                destinationId: message.destinationId,
+                messageId: message.messageId,
+              });
+            const existingTask =
+              existingKey &&
+              s.tasks.find((task) => task.requestKey === existingKey);
+            let scope = existingTask?.request.scope ?? message.scope;
+            const routeAllowed =
+              identity?.enabled &&
+              identity.actions.includes("read") &&
+              identity.destinationIds.includes(message.destinationId) &&
+              (!identity.expiresAt ||
+                Date.parse(identity.expiresAt) > Date.parse(at())) &&
+              (!identity.tenantId ||
+                identity.tenantId === s.channel.probe.identity.tenantId);
+            if (!scope && routeAllowed && identity.scopes.length === 1)
               scope = identity.scopes[0];
+            if (!scope && routeAllowed && identity.scopes.length > 1) {
+              try {
+                const requestText = text(
+                  message.text,
+                  "incoming request",
+                  16000,
+                );
+                const routed = await run("route", {
+                  request: { text: requestText },
+                  allowedScopes: [...identity.scopes],
+                });
+                if (
+                  Object.keys(routed).length !== 1 ||
+                  !Object.hasOwn(routed, "scope") ||
+                  (routed.scope !== null &&
+                    (typeof routed.scope !== "string" ||
+                      !identity.scopes.includes(routed.scope)))
+                ) {
+                  scope = "__scope_routing_unavailable__";
+                } else scope = routed.scope;
+              } catch {
+                scope = "__scope_routing_unavailable__";
+              }
+            }
             let task;
             try {
               task = addRequest(s, {
@@ -1991,10 +2197,12 @@ export function createTwinService({
               );
               continue;
             }
-            const reason = taskReason(s, task, live);
-            if (reason) {
-              task.status = "blocked";
-              task.reason = reason;
+            if (!terminalReplay(s, task)) {
+              const reason = taskReason(s, task, live);
+              if (reason) {
+                task.status = "blocked";
+                task.reason = reason;
+              }
             }
           }
           if (read.cursor !== undefined) {
