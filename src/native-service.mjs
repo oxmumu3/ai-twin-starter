@@ -1159,6 +1159,75 @@ export function createTwinService({
     s.channel.probe.observedMessageCount = read.messages.length;
     s.channel.status = "delivery_required";
   }
+  async function seedChannelCursor(s) {
+    // Seed only an uninitialized connection at the owner's explicit enable.
+    // Probes discard their read cursor; resuming must retain pending pages and
+    // known-thread watermarks instead of consuming them as another baseline.
+    if (s.channel.cursor !== null && s.channel.cursor !== undefined)
+      return true;
+    channelRequired("read");
+    const ids = s.channel.config.allowedChannelIds;
+    let cursor = null,
+      coverage = null;
+    for (let index = 0; index < ids.length; index++) {
+      await verifyAccount(s);
+      const read = await transport.read(channelConfig(s), { cursor, limit: 1 });
+      if (
+        !object(read) ||
+        !Array.isArray(read.messages) ||
+        read.messages.length !== 0 ||
+        read.cursor === null ||
+        read.cursor === undefined ||
+        Buffer.byteLength(JSON.stringify(read)) > 65536
+      )
+        throw issue(
+          "baseline_unconfirmed",
+          "The inbound channel baseline could not be established without consuming requests",
+        );
+      const gaps = normalizedReadGaps(read);
+      if (gaps.length) {
+        s.channel.gaps = gaps;
+        s.channel.threadCoverage = object(read.threadCoverage)
+          ? clone(read.threadCoverage)
+          : null;
+        s.service.enabled = false;
+        log(
+          s,
+          at(),
+          "channel_seed_gap",
+          "Channel coverage could not be initialized; service remains paused.",
+        );
+        return false;
+      }
+      cursor = clone(read.cursor);
+      coverage = object(read.threadCoverage)
+        ? clone(read.threadCoverage)
+        : null;
+      if (Buffer.byteLength(JSON.stringify(cursor)) > 32768)
+        throw issue("channel_invalid", "Channel cursor exceeds its limit");
+    }
+    // The native Slack cursor provides an explicit watermark for each input.
+    if (
+      object(cursor) &&
+      cursor.version === 2 &&
+      (!object(cursor.channels) ||
+        ids.some((id) => !Object.hasOwn(cursor.channels, id)))
+    )
+      throw issue(
+        "baseline_unconfirmed",
+        "Not every allowed input channel has an initialized watermark",
+      );
+    s.channel.cursor = cursor;
+    s.channel.threadCoverage = coverage;
+    s.channel.gaps = [];
+    s.channel.baseline = {
+      channelIds: [...ids],
+      configFingerprint: configHash(s),
+      accountFingerprint: accountHash(s.channel.probe.identity),
+      seededAt: at(),
+    };
+    return true;
+  }
   async function testDelivery(s, { checkpoint }) {
     channelRequired("send");
     if (s.channel.probe?.readVerified !== true)
@@ -1860,6 +1929,7 @@ export function createTwinService({
               "not_ready",
               "Complete the current material, ability, channel and identity checks before enabling",
             );
+          if (!(await seedChannelCursor(s))) break;
           s.service.enabled = true;
           s.service.everEnabled = true;
           log(

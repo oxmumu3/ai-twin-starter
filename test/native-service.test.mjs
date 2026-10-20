@@ -93,6 +93,16 @@ async function fixture(t, { transport, executor } = {}) {
       return { status: "sent", remoteId: "100.1" };
     },
   };
+  // Service lifecycle fixtures model an empty, already bounded read transport.
+  // Real native cursor initialization is tested below with NativeSlack itself.
+  const read = channel.read;
+  channel.read = async (config, options = {}) => {
+    const result = await read(config, options);
+    return {
+      ...result,
+      cursor: result.cursor ?? options.cursor ?? { syntheticBaseline: true },
+    };
+  };
   const stateDir = join(root, "state");
   const boundExecutor = executor ?? model(calls);
   return {
@@ -894,4 +904,195 @@ test("uncertain task receipt checks preserve the original thread destination", a
     s.outbox.find((entry) => entry.id === s.tasks.at(-1).deliveryId).threadId,
     "1710000000.000001",
   );
+});
+async function nativeInbox(t, ids = ["C1"]) {
+  const { createNativeSlack } = await import("../src/native-slack.mjs");
+  const calls = [];
+  const inbox = new Map(
+    ids.map((id, index) => [
+      id,
+      [
+        {
+          type: "message",
+          user: "U1",
+          text: `Old before enable ${id}`,
+          ts: `${1000 + index * 100}.000001`,
+        },
+      ],
+    ]),
+  );
+  let sent = 9000;
+  const transport = createNativeSlack({
+    readConfig: () => ({ slackBotToken: "synthetic-test-credential" }),
+    fetchImpl: async (url, init) => {
+      const method = url.split("/").at(-1),
+        params = Object.fromEntries(new URLSearchParams(init.body));
+      calls.push({ method, params });
+      if (method === "auth.test")
+        return Response.json({
+          ok: true,
+          team_id: "T1",
+          user_id: "UBOT",
+          bot_id: "BBOT",
+        });
+      if (method === "conversations.info")
+        return Response.json({
+          ok: true,
+          channel: {
+            id: params.channel,
+            is_member: true,
+            ...(params.channel === "D1" ? { is_im: true, user: "UOWNER" } : {}),
+          },
+        });
+      if (method === "conversations.history") {
+        const items = (inbox.get(params.channel) ?? [])
+          .filter((m) => !params.oldest || Number(m.ts) > Number(params.oldest))
+          .sort((a, b) => Number(b.ts) - Number(a.ts));
+        const limit = Number(params.limit);
+        return Response.json({
+          ok: true,
+          messages: items.slice(0, limit),
+          has_more: items.length > limit,
+          ...(items.length > limit
+            ? { response_metadata: { next_cursor: "another-page" } }
+            : {}),
+        });
+      }
+      if (method === "conversations.replies")
+        return Response.json({ ok: true, messages: [], has_more: false });
+      if (method === "chat.postMessage")
+        return Response.json({
+          ok: true,
+          channel: params.channel,
+          ts: `${sent++}.000001`,
+        });
+      throw Error(`Unexpected Slack method ${method}`);
+    },
+  });
+  t.after(() => transport.close());
+  const f = await fixture(t, { transport });
+  const c = await prepare(f);
+  if (ids.length > 1) {
+    await c("configure_channel", {
+      platform: "slack",
+      ownerId: "UOWNER",
+      ownerDestinationId: "D1",
+      allowedChannelIds: ids,
+      allowedDestinationIds: [...ids, "D1"],
+    });
+    await c("probe_channel");
+    await c("test_delivery");
+    await c("save_identity", {
+      id: "alice",
+      senderId: "U1",
+      name: "Alice",
+      role: "colleague",
+      scopes: ["knowledge"],
+      actions: ["read", "draft", "reply"],
+      destinationIds: ids,
+      enabled: true,
+    });
+    await c("test_rules");
+  }
+  return { f, c, calls, inbox };
+}
+test("real Slack transport seeds every inbound channel at explicit enable so the first new request is never baselined away", async (t) => {
+  const ids = ["C1", "C2", "C3"],
+    { f, c, calls, inbox } = await nativeInbox(t, ids);
+  const before = calls.length;
+  await c("enable");
+  let s = await f.service.snapshot();
+  assert.deepEqual(Object.keys(s.channel.cursor?.channels ?? {}).sort(), ids);
+  assert.deepEqual(
+    calls
+      .slice(before)
+      .filter((call) => call.method === "conversations.history")
+      .map((call) => call.params.channel),
+    ids,
+  );
+  assert.ok(
+    calls
+      .slice(before)
+      .filter((call) => call.method === "conversations.history")
+      .every((call) => call.params.oldest === undefined),
+  );
+  for (let i = 0; i < ids.length; i++)
+    inbox
+      .get(ids[i])
+      .push({
+        type: "message",
+        user: "U1",
+        text: `First request after enable ${ids[i]}`,
+        ts: `${1001 + i * 100}.000001`,
+      });
+  await c("tick");
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.length, 1);
+  assert.equal(s.tasks[0].request.text, "First request after enable C1");
+  for (let i = 0; i < ids.length * 2; i++) await c("tick");
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.length, ids.length);
+  assert.ok(
+    s.tasks.every((task) =>
+      task.request.text.startsWith("First request after enable"),
+    ),
+  );
+});
+test("real Slack re-probe and resume preserve the last committed cursor and do not consume pending requests", async (t) => {
+  const { f, c, calls, inbox } = await nativeInbox(t);
+  await c("enable");
+  const start = (await f.service.snapshot()).channel.cursor;
+  await c("pause");
+  inbox
+    .get("C1")
+    .push({
+      type: "message",
+      user: "U1",
+      text: "Pending while paused",
+      ts: "1001.000001",
+    });
+  await c("probe_channel");
+  assert.deepEqual((await f.service.snapshot()).channel.cursor, start);
+  await c("test_rules");
+  const before = calls.filter(
+    (call) => call.method === "conversations.history",
+  ).length;
+  await c("enable");
+  assert.equal(
+    calls.filter((call) => call.method === "conversations.history").length,
+    before,
+  );
+  inbox
+    .get("C1")
+    .push({
+      type: "message",
+      user: "U1",
+      text: "First after resume",
+      ts: "1002.000001",
+    });
+  await c("tick");
+  const s = await f.service.snapshot();
+  assert.deepEqual(
+    s.tasks.map((task) => task.request.text),
+    ["Pending while paused", "First after resume"],
+  );
+});
+test("an enable-time coverage gap is persisted and never turns the service on", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  f.transport.read = async () => ({
+    messages: [],
+    cursor: { seed: true },
+    gaps: [
+      { code: "thread_permission_required", message: "raw adapter details" },
+    ],
+    threadCoverage: { tracked: 0, status: "gap" },
+  });
+  const s = await c("enable");
+  assert.equal(s.service.enabled, false);
+  assert.equal(s.service.everEnabled, false);
+  assert.equal(s.channel.cursor, null);
+  assert.equal(s.channel.baseline, undefined);
+  assert.equal(s.channel.gaps[0].code, "thread_permission_required");
+  assert.equal(s.readiness.channels, false);
 });

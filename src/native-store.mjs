@@ -135,91 +135,147 @@ export function createTwinStore({ stateDir, initialState }) {
   const directory = resolve(stateDir),
     path = join(directory, "state.json"),
     lockPath = join(directory, ".lock");
+  const recoveryPath = join(directory, ".recovery-lock");
+  async function ownedFile(target) {
+    const file = await open(
+      target,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_NOFOLLOW,
+      0o600,
+    );
+    const content = JSON.stringify({
+      pid: process.pid,
+      nonce: randomUUID(),
+      startedAt: new Date().toISOString(),
+    });
+    try {
+      await file.writeFile(content);
+      await file.sync();
+      return { target, file, content, stat: await file.stat() };
+    } catch (error) {
+      await file.close();
+      throw error;
+    }
+  }
+  async function inspectLock(target) {
+    const stat = await lstat(target);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 2048)
+      throw issue("state_busy", "Lock file is not a bounded regular file");
+    const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const opened = await file.stat();
+      if (
+        opened.ino !== stat.ino ||
+        opened.dev !== stat.dev ||
+        opened.size !== stat.size
+      )
+        throw issue("state_busy", "Lock changed while checking ownership");
+      const content = await file.readFile("utf8");
+      return { stat, content };
+    } finally {
+      await file.close();
+    }
+  }
+  async function releaseOwned(owned) {
+    try {
+      const current = await inspectLock(owned.target);
+      if (
+        current.stat.ino !== owned.stat.ino ||
+        current.stat.dev !== owned.stat.dev ||
+        current.content !== owned.content
+      )
+        throw issue(
+          "state_lock_lost",
+          "Lock ownership changed; the replacement lock was preserved",
+        );
+      await unlink(owned.target);
+    } catch (error) {
+      if (error.code === "state_lock_lost") throw error;
+      throw issue(
+        "state_lock_lost",
+        "Lock ownership could not be confirmed; the lock was preserved",
+      );
+    } finally {
+      await owned.file.close();
+    }
+  }
   async function lock() {
     await checkedDirectory(directory, true);
     await chmod(directory, 0o700);
-    let file;
+    let owned;
     try {
-      file = await open(
-        lockPath,
-        constants.O_WRONLY |
-          constants.O_CREAT |
-          constants.O_EXCL |
-          constants.O_NOFOLLOW,
-        0o600,
-      );
+      owned = await ownedFile(lockPath);
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      // Only an owner proven dead by the OS may be reclaimed. Age alone is never evidence.
-      let before, original, owner;
+      // Recovery has its own exclusive mutex. It is deliberately never stolen:
+      // a crashed recovery requires owner inspection rather than risking two writers.
+      let recovery;
       try {
-        before = await lstat(lockPath);
-        if (before.isSymbolicLink() || !before.isFile() || before.size > 2048)
-          throw Error("unsafe");
-        const handle = await open(
-          lockPath,
-          constants.O_RDONLY | constants.O_NOFOLLOW,
-        );
-        try {
-          original = await handle.readFile("utf8");
-        } finally {
-          await handle.close();
-        }
-        owner = JSON.parse(original);
-        if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0)
-          throw Error("unknown owner");
-        try {
-          process.kill(owner.pid, 0);
-          throw Error("alive");
-        } catch (check) {
-          if (check.code !== "ESRCH") throw check;
-        }
-        const checked = await lstat(lockPath);
-        const handle2 = await open(
-          lockPath,
-          constants.O_RDONLY | constants.O_NOFOLLOW,
-        );
-        let current;
-        try {
-          current = await handle2.readFile("utf8");
-        } finally {
-          await handle2.close();
-        }
-        if (
-          checked.ino !== before.ino ||
-          checked.dev !== before.dev ||
-          checked.size !== before.size ||
-          current !== original
-        )
-          throw Error("changed");
-        await unlink(lockPath);
+        recovery = await ownedFile(recoveryPath);
       } catch {
         throw issue(
           "state_busy",
-          "Another command owns the state lock or its owner cannot be proven dead",
+          "Another recovery owns the mutex, or a crashed recovery needs owner inspection",
         );
       }
       try {
-        file = await open(
-          lockPath,
-          constants.O_WRONLY |
-            constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_NOFOLLOW,
-          0o600,
+        let original;
+        try {
+          original = await inspectLock(lockPath);
+        } catch (check) {
+          if (check.code !== "ENOENT") throw check;
+        }
+        if (original) {
+          let owner;
+          try {
+            owner = JSON.parse(original.content);
+          } catch {
+            throw issue("state_busy", "Lock owner is unknown");
+          }
+          if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0)
+            throw issue("state_busy", "Lock owner is unknown");
+          try {
+            process.kill(owner.pid, 0);
+            throw issue(
+              "state_busy",
+              "Another live process owns the state lock",
+            );
+          } catch (check) {
+            if (check.code !== "ESRCH")
+              throw issue("state_busy", "Lock owner cannot be proven dead");
+          }
+          // Re-read under the recovery mutex before deleting. No second recovery
+          // can carry an old inode check across the new writer's acquisition.
+          const checked = await inspectLock(lockPath);
+          if (
+            checked.stat.ino !== original.stat.ino ||
+            checked.stat.dev !== original.stat.dev ||
+            checked.content !== original.content
+          )
+            throw issue("state_busy", "Lock changed during recovery");
+          await unlink(lockPath);
+        }
+        try {
+          owned = await ownedFile(lockPath);
+        } catch {
+          throw issue(
+            "state_busy",
+            "Another writer acquired the recovered lock",
+          );
+        }
+      } catch (error) {
+        if (error.code === "state_busy") throw error;
+        throw issue(
+          "state_busy",
+          "Existing lock could not be recovered safely",
         );
-      } catch {
-        throw issue("state_busy", "Another writer acquired the recovered lock");
+      } finally {
+        await releaseOwned(recovery);
       }
     }
-    await file.writeFile(
-      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
-    );
-    await file.sync();
-    return async () => {
-      await file.close();
-      await unlink(lockPath);
-    };
+    return async () => releaseOwned(owned);
   }
   async function read() {
     await checkedDirectory(directory, true);
