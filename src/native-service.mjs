@@ -1163,14 +1163,17 @@ export function createTwinService({
     // Seed only an uninitialized connection at the owner's explicit enable.
     // Probes discard their read cursor; resuming must retain pending pages and
     // known-thread watermarks instead of consuming them as another baseline.
+    channelRequired("read");
+    // Full account/destination verification is O(number of destinations).
+    // Hold one transaction and verify around the entire bounded seed pass,
+    // rather than repeating the full destination scan for every input channel.
+    await verifyAccount(s);
     if (s.channel.cursor !== null && s.channel.cursor !== undefined)
       return true;
-    channelRequired("read");
     const ids = s.channel.config.allowedChannelIds;
     let cursor = null,
       coverage = null;
     for (let index = 0; index < ids.length; index++) {
-      await verifyAccount(s);
       const read = await transport.read(channelConfig(s), { cursor, limit: 1 });
       if (
         !object(read) ||
@@ -1217,6 +1220,7 @@ export function createTwinService({
         "baseline_unconfirmed",
         "Not every allowed input channel has an initialized watermark",
       );
+    await verifyAccount(s);
     s.channel.cursor = cursor;
     s.channel.threadCoverage = coverage;
     s.channel.gaps = [];
@@ -1776,14 +1780,24 @@ export function createTwinService({
               "identity_duplicate",
               "A platform sender must have exactly one explicit identity",
             );
-          if (payload.expiresAt) {
-            if (!Number.isFinite(Date.parse(payload.expiresAt)))
-              throw issue(
-                "invalid_input",
-                "Identity expiration must be a valid date",
+          if (Object.hasOwn(payload, "expiresAt")) {
+            // Only the owner's explicit empty string removes a time limit.
+            // Omitted expiry must not silently widen an existing grant.
+            if (payload.expiresAt !== "") {
+              const expiration = text(
+                payload.expiresAt,
+                "identity expiration",
+                100,
               );
-            identity.expiresAt = payload.expiresAt;
-          }
+              if (!Number.isFinite(Date.parse(expiration)))
+                throw issue(
+                  "invalid_input",
+                  "Identity expiration must be a valid date",
+                );
+              identity.expiresAt = expiration;
+            }
+          } else if (previous?.expiresAt !== undefined)
+            identity.expiresAt = previous.expiresAt;
           if (s.identities.length >= 100 && !previous)
             throw issue("identity_limit", "Identity limit reached");
           s.identities = previous

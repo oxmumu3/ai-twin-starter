@@ -922,8 +922,14 @@ async function nativeInbox(t, ids = ["C1"]) {
     ]),
   );
   let sent = 9000;
+  const connection = {
+    tenantId: "T1",
+    actorId: "UBOT",
+    credential: "synthetic-test-credential",
+    onHistory: null,
+  };
   const transport = createNativeSlack({
-    readConfig: () => ({ slackBotToken: "synthetic-test-credential" }),
+    readConfig: () => ({ slackBotToken: connection.credential }),
     fetchImpl: async (url, init) => {
       const method = url.split("/").at(-1),
         params = Object.fromEntries(new URLSearchParams(init.body));
@@ -931,8 +937,8 @@ async function nativeInbox(t, ids = ["C1"]) {
       if (method === "auth.test")
         return Response.json({
           ok: true,
-          team_id: "T1",
-          user_id: "UBOT",
+          team_id: connection.tenantId,
+          user_id: connection.actorId,
           bot_id: "BBOT",
         });
       if (method === "conversations.info")
@@ -949,6 +955,7 @@ async function nativeInbox(t, ids = ["C1"]) {
           .filter((m) => !params.oldest || Number(m.ts) > Number(params.oldest))
           .sort((a, b) => Number(b.ts) - Number(a.ts));
         const limit = Number(params.limit);
+        connection.onHistory?.({ channelId: params.channel, params });
         return Response.json({
           ok: true,
           messages: items.slice(0, limit),
@@ -994,7 +1001,7 @@ async function nativeInbox(t, ids = ["C1"]) {
     });
     await c("test_rules");
   }
-  return { f, c, calls, inbox };
+  return { f, c, calls, inbox, connection };
 }
 test("real Slack transport seeds every inbound channel at explicit enable so the first new request is never baselined away", async (t) => {
   const ids = ["C1", "C2", "C3"],
@@ -1017,14 +1024,12 @@ test("real Slack transport seeds every inbound channel at explicit enable so the
       .every((call) => call.params.oldest === undefined),
   );
   for (let i = 0; i < ids.length; i++)
-    inbox
-      .get(ids[i])
-      .push({
-        type: "message",
-        user: "U1",
-        text: `First request after enable ${ids[i]}`,
-        ts: `${1001 + i * 100}.000001`,
-      });
+    inbox.get(ids[i]).push({
+      type: "message",
+      user: "U1",
+      text: `First request after enable ${ids[i]}`,
+      ts: `${1001 + i * 100}.000001`,
+    });
   await c("tick");
   s = await f.service.snapshot();
   assert.equal(s.tasks.length, 1);
@@ -1043,14 +1048,12 @@ test("real Slack re-probe and resume preserve the last committed cursor and do n
   await c("enable");
   const start = (await f.service.snapshot()).channel.cursor;
   await c("pause");
-  inbox
-    .get("C1")
-    .push({
-      type: "message",
-      user: "U1",
-      text: "Pending while paused",
-      ts: "1001.000001",
-    });
+  inbox.get("C1").push({
+    type: "message",
+    user: "U1",
+    text: "Pending while paused",
+    ts: "1001.000001",
+  });
   await c("probe_channel");
   assert.deepEqual((await f.service.snapshot()).channel.cursor, start);
   await c("test_rules");
@@ -1062,14 +1065,12 @@ test("real Slack re-probe and resume preserve the last committed cursor and do n
     calls.filter((call) => call.method === "conversations.history").length,
     before,
   );
-  inbox
-    .get("C1")
-    .push({
-      type: "message",
-      user: "U1",
-      text: "First after resume",
-      ts: "1002.000001",
-    });
+  inbox.get("C1").push({
+    type: "message",
+    user: "U1",
+    text: "First after resume",
+    ts: "1002.000001",
+  });
   await c("tick");
   const s = await f.service.snapshot();
   assert.deepEqual(
@@ -1095,4 +1096,105 @@ test("an enable-time coverage gap is persisted and never turns the service on", 
   assert.equal(s.channel.baseline, undefined);
   assert.equal(s.channel.gaps[0].code, "thread_permission_required");
   assert.equal(s.readiness.channels, false);
+});
+test("ten-channel enable performs only two complete identity and destination checks around baseline initialization", async (t) => {
+  const ids = Array.from({ length: 10 }, (_, i) => `C${i + 1}`),
+    { c, calls } = await nativeInbox(t, ids);
+  const before = calls.length;
+  await c("enable");
+  const enable = calls.slice(before);
+  assert.equal(
+    enable.filter((call) => call.method === "conversations.history").length,
+    10,
+  );
+  assert.equal(enable.filter((call) => call.method === "auth.test").length, 2);
+  assert.equal(
+    enable.filter((call) => call.method === "conversations.info").length,
+    22,
+  );
+  const history = enable
+      .map((call, i) => (call.method === "conversations.history" ? i : -1))
+      .filter((i) => i >= 0),
+    auth = enable
+      .map((call, i) => (call.method === "auth.test" ? i : -1))
+      .filter((i) => i >= 0);
+  assert.ok(auth[0] < history[0]);
+  assert.ok(auth[1] > history.at(-1));
+});
+test("identity drift on the final baseline read is detected before any enable or cursor commit", async (t) => {
+  const { f, c, calls, connection } = await nativeInbox(t, ["C1", "C2", "C3"]);
+  connection.onHistory = ({ channelId }) => {
+    if (channelId === "C3") connection.tenantId = "T2";
+  };
+  const before = calls.length;
+  await assert.rejects(c("enable"), (e) =>
+    ["identity_changed", "channel_identity_changed"].includes(e.code),
+  );
+  const s = await f.service.snapshot();
+  assert.equal(s.service.enabled, false);
+  assert.equal(s.service.everEnabled, false);
+  assert.equal(s.channel.cursor, null);
+  assert.equal(s.channel.baseline, undefined);
+  assert.equal(
+    calls
+      .slice(before)
+      .filter((call) => call.method === "conversations.history").length,
+    3,
+  );
+});
+test("editing an identity preserves omitted expiration, keeps expired requests denied, and clears only with explicit empty text", async (t) => {
+  const f = await fixture(t),
+    c = await prepare(f);
+  await c("enable");
+  const identity = {
+    id: "alice",
+    senderId: "U1",
+    name: "Alice",
+    role: "colleague",
+    scopes: ["knowledge"],
+    actions: ["read", "draft", "reply"],
+    destinationIds: ["C1"],
+    enabled: true,
+  };
+  const expiry = "2000-01-01T00:00:00.000Z";
+  await c("save_identity", { ...identity, expiresAt: expiry });
+  await c("save_identity", { ...identity, name: "Alice edited" });
+  let s = await f.service.snapshot();
+  assert.equal(s.identities.find((i) => i.id === "alice").expiresAt, expiry);
+  await c("submit_request", {
+    senderId: "U1",
+    destinationId: "C1",
+    text: "Request after expiration",
+    scope: "knowledge",
+    action: "reply",
+  });
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "blocked");
+  assert.equal(s.tasks.at(-1).reason, "identity_expired");
+  const before = f.calls.filter(
+    (call) => call.kind === "task" && call.input.request.scope,
+  ).length;
+  await c("task_step", { taskId: s.tasks.at(-1).id });
+  assert.equal(
+    f.calls.filter((call) => call.kind === "task" && call.input.request.scope)
+      .length,
+    before,
+  );
+  await c("save_identity", { ...identity, expiresAt: "" });
+  s = await f.service.snapshot();
+  assert.equal(s.identities.find((i) => i.id === "alice").expiresAt, undefined);
+  await assert.rejects(
+    c("save_identity", { ...identity, expiresAt: null }),
+    (e) => e.code === "invalid_input",
+  );
+  await c("test_rules");
+  await c("submit_request", {
+    senderId: "U1",
+    destinationId: "C1",
+    text: "An owner explicitly removed the expiration",
+    scope: "knowledge",
+    action: "reply",
+  });
+  s = await f.service.snapshot();
+  assert.equal(s.tasks.at(-1).status, "queued");
 });
