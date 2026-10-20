@@ -4,9 +4,12 @@ import { initWorkspace, inspectWorkspace, readRunbook } from './src/workspace.mj
 import { prepareDistillation, applyDistillation, inspectDistillation, refreshDistillation, readKnowledge } from './src/distill.mjs';
 import { createSlackAdapter, probeChannel, tickChannel, inspectChannel } from './src/channel.mjs';
 import { inventoryMaterials, prepareMaterials, applyMaterials, inspectMaterials, prepareDistillationFromMaterials } from './src/materials.mjs';
+import { mountNativeTwin } from './src/native-plugin.mjs';
+export { Config } from './src/native-config.mjs';
+export { mountNativeTwin } from './src/native-plugin.mjs';
 
 export const name = 'agent-twin-starter';
-export const inject = ['tools', 'workingDirectory', 'sandboxPolicy'];
+export const inject = ['tools'];
 
 function currentDirectory(ctx, agent) {
   if (!agent?.session) throw new Error('A current local agent session is required / 需要当前本地会话');
@@ -91,7 +94,15 @@ const sourceRefs = {
 };
 
 /** Mounting registers tools only: no file selection, Slack access or polling starts. */
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['connection', 'workspaceRegistry', 'sessionController'], async scope => {
+      // Cordis accepts void or a disposer, never the runtime object returned
+      // by our public installation helper. Returning that object unloads the
+      // just-registered HTTP routes as an "Invalid effect" failure.
+      await mountNativeTwin(scope, config);
+    });
+  }
   ctx.tools.register(defineTool({
     name: 'agent_twin',
     description: 'Build a twin from the current work Agent in four steps: prepare scattered project materials; distill private source-backed knowledge/judgment/workflow/tool cards; verify a locally authorized Slack channel with read-only checks; set permissions and perform a forced dry run. init creates a new disabled .agent-twin directory without overwriting existing work. materials_inventory reads bounded metadata only in explicitly selected relative directory roots. materials_prepare reads only user-selected files; the Agent organizes them into a private source-backed packet for materials_apply, separating background, knowledge, decisions, workflows, cases, tools and bundles, plus gaps. Preparing materials is not distillation or proof of tool execution. materials_distill prepares a distillation batch from the current selected packet sources; the Agent must still extract and apply cards. Direct distill_prepare remains available for already prepared files. distill_apply separates documented facts from candidates with exact sourceRefs; distill_refresh reports source changes without rewriting cards. Before using distilled knowledge, call knowledge_read: it returns only current documented cards and excludes stale/candidate cards. This is private internal context, not a package to forward to a visitor; use only the caller-authorized scope and do not expose the whole private knowledge pack. channel_probe and channel_tick use only a local environment token and explicit local configuration; token values are never model arguments. channel_tick always uses dryRun:true and performs no sending or business actions, even when enabled:false. No scheduler or background bot is registered. Installation, saved materials, distilled knowledge, verified read-only channels and autonomous service are separate proof states.',
