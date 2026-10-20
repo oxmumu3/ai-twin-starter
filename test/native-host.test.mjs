@@ -115,3 +115,18 @@ test('model evaluations cannot pass by omitting required cases or inventing a mi
     await assert.rejects(executor.run({kind,input}),/model_invalid_output/);executor.close();
   }
 });
+test('route invokes the native model using only request text and granted scope IDs',async()=>{
+  const f=modelContext(outputChunks({scope:'workflow'})),executor=createNativeExecutor(f.ctx);
+  assert.deepEqual(await executor.run({kind:'route',input:{request:{text:'How do I prepare the weekly report?'},allowedScopes:['knowledge','workflow']}}),{scope:'workflow'});
+  const data=JSON.parse(f.calls[0].input.messages[0].content[0].text);assert.deepEqual(Object.keys(data).sort(),['allowedScopes','request']);assert.deepEqual(f.calls[0].input.tools,[]);executor.close();
+});
+test('route allows uncertainty but never accepts a model-selected scope outside the explicit allowlist',async()=>{
+  for(const value of [{scope:'tool'},{scope:'workflow',extra:'private'},{scope:123}]){
+    const f=modelContext(outputChunks(value)),executor=createNativeExecutor(f.ctx);await assert.rejects(executor.run({kind:'route',input:{request:{text:'help'},allowedScopes:['workflow']}}));executor.close();
+  }
+  const f=modelContext(outputChunks({scope:null})),executor=createNativeExecutor(f.ctx);assert.deepEqual(await executor.run({kind:'route',input:{request:{text:'unclear'},allowedScopes:['workflow']}}),{scope:null});executor.close();
+});
+test('route refuses accidentally supplied private cards or identity details before model invocation',async()=>{
+  const f=modelContext(outputChunks({scope:'workflow'})),executor=createNativeExecutor(f.ctx);
+  await assert.rejects(executor.run({kind:'route',input:{request:{text:'help'},allowedScopes:['workflow'],cards:[{content:'private'}]}}));assert.equal(f.calls.length,0);executor.close();
+});

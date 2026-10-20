@@ -19,16 +19,22 @@ const channels=(config,kind='all')=>{
 function keyFor(value){if(typeof value!=='string'||!value||value.length>300)throw failure('invalid_delivery_key');return digest(value);}
 function destination(config,id){if(!channels(config,'out').includes(id))throw failure('destination_not_authorized');return id;}
 function uuid(key){const value=keyFor(key);return`${value.slice(0,8)}-${value.slice(8,12)}-5${value.slice(13,16)}-a${value.slice(17,20)}-${value.slice(20,32)}`;}
-function cursorFor(config,cursor){
+const THREAD_GAPS=Object.freeze({thread_permission_required:'Slack 尚未授权读取已接单线程的回复，请补齐 conversations.replies 权限后重新检查通道。',thread_read_unavailable:'已接单线程的回复本轮未能读取，请检查 Slack 连接后重试；未声称线程覆盖完整。',thread_tracking_limit:'已达到已知线程跟踪上限；已有线程游标已保留，新线程尚未纳入跟踪。'});
+function cursorFor(config,cursor,maxTrackedThreads){
   const ids=channels(config,'in'),fingerprint=digest(JSON.stringify(ids));
-  if(cursor===undefined||cursor===null)return{version:1,fingerprint,index:0,channels:{}};
-  if(!object(cursor)||cursor.version!==1||cursor.fingerprint!==fingerprint||!Number.isInteger(cursor.index)||cursor.index<0||cursor.index>=ids.length||!object(cursor.channels)||Buffer.byteLength(JSON.stringify(cursor))>16384)throw failure('cursor_changed');
+  if(cursor===undefined||cursor===null)return{version:2,fingerprint,index:0,channels:{},threads:[],threadIndex:0,turn:'history',gaps:[]};
+  if(!object(cursor)||![1,2].includes(cursor.version)||cursor.fingerprint!==fingerprint||!Number.isInteger(cursor.index)||cursor.index<0||cursor.index>=ids.length||!object(cursor.channels)||Buffer.byteLength(JSON.stringify(cursor))>16384)throw failure('cursor_changed');
   for(const [id,row] of Object.entries(cursor.channels))if(!ids.includes(id)||!object(row)||!TS.test(row.latest??'')||(row.high!==undefined&&!TS.test(row.high))||(row.next!==undefined&&(typeof row.next!=='string'||row.next.length>2000)))throw failure('invalid_cursor');
-  return structuredClone(cursor);
+  const value=structuredClone(cursor);
+  if(value.version===1)Object.assign(value,{version:2,threads:[],threadIndex:0,turn:'history',gaps:[]});
+  if(!Array.isArray(value.threads)||value.threads.length>maxTrackedThreads||!Number.isInteger(value.threadIndex)||value.threadIndex<0||value.threadIndex>=Math.max(1,value.threads.length)||!['history','thread'].includes(value.turn)||!Array.isArray(value.gaps)||value.gaps.length>3||value.gaps.some(code=>!Object.hasOwn(THREAD_GAPS,code)))throw failure('invalid_cursor');
+  for(const row of value.threads)if(!object(row)||!ids.includes(row.channelId)||!TS.test(row.ts??'')||!TS.test(row.latest??'')||row.high!==undefined&&!TS.test(row.high)||row.next!==undefined&&(typeof row.next!=='string'||row.next.length>2000))throw failure('invalid_cursor');
+  if(new Set(value.threads.map(row=>`${row.channelId}:${row.ts}`)).size!==value.threads.length)throw failure('invalid_cursor');
+  return value;
 }
 
-export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetch,timeoutMs=20000,now=()=>new Date()}={}){
-  if(typeof fetchImpl!=='function'||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>30000)throw failure('invalid_runtime');
+export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetch,timeoutMs=20000,now=()=>new Date(),maxTrackedThreads=64}={}){
+  if(typeof fetchImpl!=='function'||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>30000||!Number.isInteger(maxTrackedThreads)||maxTrackedThreads<1||maxTrackedThreads>64)throw failure('invalid_runtime');
   const lifecycle=new AbortController();
   async function request(method,parameters={},signal){
     if(lifecycle.signal.aborted)throw failure('closed');
@@ -38,7 +44,7 @@ export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetc
     let response;try{response=await fetchImpl(`${API}${method}`,{method:'POST',redirect:'error',signal:operation,headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'},body:new URLSearchParams(Object.entries(parameters).map(([key,value])=>[key,String(value)]))});}catch{throw failure('network_unknown');}
     if(!response?.ok)throw failure(response?.status===429?'rate_limited':'http_unconfirmed');
     let raw,data;try{raw=await response.text();if(Buffer.byteLength(raw)>2*1024*1024)throw new Error();data=JSON.parse(raw);}catch{throw failure('response_unconfirmed');}
-    if(!object(data)||data.ok!==true){const code=['invalid_auth','not_authed','token_revoked','token_expired','account_inactive','missing_scope','channel_not_found','not_in_channel','is_archived','msg_too_long','invalid_arguments','restricted_action'].includes(data?.error)?data.error:'api_unconfirmed';throw failure(code);}
+    if(!object(data)||data.ok!==true){const code=['invalid_auth','not_authed','token_revoked','token_expired','account_inactive','missing_scope','channel_not_found','not_in_channel','is_archived','msg_too_long','invalid_arguments','restricted_action','not_allowed_token_type','access_denied'].includes(data?.error)?data.error:'api_unconfirmed';throw failure(code);}
     return data;
   }
   async function auth(config,signal){
@@ -54,15 +60,23 @@ export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetc
       for(const id of ids){
         const result=await request('conversations.info',{channel:id},signal),channel=result.channel;
         if(!object(channel)||channel.id!==id||channel.is_archived===true||channel.is_ext_shared===true||!(channel.is_member===true||channel.is_im===true))throw failure('destination_inaccessible');
+        if(id===config.ownerDestinationId&&(!ID.test(config.ownerId??'')||channel.is_im!==true||channel.user!==config.ownerId||config.ownerId===identity.actorId))throw failure('owner_destination_mismatch');
       }
-      return{...identity,destinations:ids};
+      if(config.ownerDestinationId&&!ids.includes(config.ownerDestinationId))throw failure('owner_destination_mismatch');
+      return{...identity,destinations:ids,...(config.ownerDestinationId?{ownerId:config.ownerId,ownerDestinationId:config.ownerDestinationId}:{})};
     },
     async read(config,{cursor,limit=10,signal}={}){
       if(!Number.isInteger(limit)||limit<1||limit>30)throw failure('invalid_limit');
       limit=Math.min(limit,15);
-      const ids=channels(config,'in'),state=cursorFor(config,cursor),id=ids[state.index],row=state.channels[id];
-      const params={channel:id,limit,...(row?{oldest:row.latest,inclusive:false,...(row.next?{cursor:row.next}:{})}:{limit:1})};
-      const result=await request('conversations.history',params,signal);
+      const ids=channels(config,'in'),state=cursorFor(config,cursor,maxTrackedThreads);
+      const pack=(messages,hasMore=false)=>({messages,cursor:state,hasMore,gaps:state.gaps.map(code=>({code,message:THREAD_GAPS[code]})),threadCoverage:{status:state.gaps.length?'gap':state.threads.length?'ready':'not_started',tracked:state.threads.length,limit:maxTrackedThreads}});
+      const readingThread=state.turn==='thread'&&state.threads.length>0;
+      const thread=readingThread?state.threads[state.threadIndex]:null;
+      const id=thread?.channelId??ids[state.index],row=thread??state.channels[id];
+      const params={channel:id,limit,...(row?{oldest:row.latest,inclusive:false,...(row.next?{cursor:row.next}:{})}:{limit:1}),...(thread?{ts:thread.ts}:{})};
+      let result;
+      try{result=await request(thread?'conversations.replies':'conversations.history',params,signal);}
+      catch(error){if(!thread)throw error;const code=['missing_scope','not_allowed_token_type','access_denied','not_in_channel','restricted_action'].includes(error?.code)?'thread_permission_required':'thread_read_unavailable';state.gaps=[...new Set([...state.gaps.filter(value=>value==='thread_tracking_limit'),code])];return pack([]);}
       if(!Array.isArray(result.messages)||result.messages.length>limit||typeof result.has_more!=='boolean')throw failure('invalid_history');
       const valid=result.messages.filter(message=>object(message)&&TS.test(message.ts??''));
       const high=valid.reduce((value,message)=>Number(message.ts)>Number(value)?message.ts:value,row?.high??row?.latest??'0.000000');
@@ -70,18 +84,30 @@ export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetc
       if(typeof next!=='string'||next.length>2000||result.has_more===true&&!next)throw failure('pagination_unavailable');
       const baseline=!row;
       const latest=baseline?(high==='0.000000'?`${Math.floor(new Date(now()).getTime()/1000)}.000000`:high):row.latest;
-      state.channels[id]=!baseline&&next?{latest,high,next}:{latest:baseline?latest:high};
-      if(baseline||!next)state.index=(state.index+1)%ids.length;
+      if(thread){
+        state.gaps=state.gaps.filter(code=>code==='thread_tracking_limit');
+        state.threads[state.threadIndex]=next?{channelId:id,ts:thread.ts,latest,high,next}:{channelId:id,ts:thread.ts,latest:high};
+        if(!next){state.threadIndex=(state.threadIndex+1)%state.threads.length;state.turn='history';}
+      }else{
+        state.channels[id]=!baseline&&next?{latest,high,next}:{latest:baseline?latest:high};
+        if(baseline||!next){state.index=(state.index+1)%ids.length;state.turn=state.threads.length?'thread':'history';}
+      }
       const messages=[];
-      if(!baseline)for(const message of valid.slice().reverse()){
+      if(!baseline)for(const message of valid.slice().sort((a,b)=>Number(a.ts)-Number(b.ts))){
         const bot=Boolean(message.bot_id)||message.subtype==='bot_message';
-        const allowedAgent=bot&&Array.isArray(config?.allowedBotSenderIds)&&config.allowedBotSenderIds.includes(message.user);
-        if(message.type!=='message'||message.subtype&&message.subtype!=='bot_message'||bot&&!allowedAgent||!ID.test(message.user??'')||message.user===config?.actorId||typeof message.text!=='string'||!message.text.trim())continue;
+        const sender=message.user??message.bot_id;
+        const allowedAgent=bot&&Array.isArray(config?.allowedBotSenderIds)&&config.allowedBotSenderIds.includes(sender);
+        if(message.type!=='message'||message.subtype&&message.subtype!=='bot_message'||bot&&!allowedAgent||!ID.test(sender??'')||sender===config?.actorId||message.bot_id&&message.bot_id===config?.botId||typeof message.text!=='string'||!message.text.trim())continue;
         if(Buffer.byteLength(message.text)>65536)throw failure('message_too_large');
         if(message.thread_ts!==undefined&&!TS.test(message.thread_ts))throw failure('invalid_thread');
-        messages.push({messageId:message.ts,senderId:message.user,destinationId:id,text:message.text,scope:null,action:'reply',threadId:message.thread_ts??message.ts});
+        if(thread&&(message.ts===thread.ts||message.thread_ts!==undefined&&message.thread_ts!==thread.ts))continue;
+        messages.push({messageId:message.ts,senderId:sender,destinationId:id,text:message.text,scope:null,action:'reply',threadId:message.thread_ts??message.ts});
+        if(!thread&&(!message.thread_ts||message.thread_ts===message.ts)&&!state.threads.some(known=>known.channelId===id&&known.ts===message.ts)){
+          if(state.threads.length>=maxTrackedThreads){if(!state.gaps.includes('thread_tracking_limit'))state.gaps.push('thread_tracking_limit');}
+          else{state.threads.push({channelId:id,ts:message.ts,latest:message.ts});if(!next)state.turn='thread';}
+        }
       }
-      return{messages,cursor:state,hasMore:!baseline&&Boolean(next)};
+      return pack(messages,!baseline&&Boolean(next));
     },
     async send({config,destinationId,text,idempotencyKey,threadId,signal}={}){
       destination(config,destinationId);
@@ -92,12 +118,13 @@ export function createNativeSlack({readConfig=()=>({}),fetchImpl=globalThis.fetc
         return result.channel===destinationId&&TS.test(result.ts??'')?{status:'sent',remoteId:result.ts}:{status:'unknown'};
       }catch(error){return{status:['invalid_auth','not_authed','token_revoked','token_expired','account_inactive','missing_scope','channel_not_found','not_in_channel','is_archived','msg_too_long','invalid_arguments','restricted_action'].includes(error?.code)?'failed':'unknown'};}
     },
-    async check({config,destinationId,idempotencyKey,remoteId,signal}={}){
+    async check({config,destinationId,idempotencyKey,remoteId,threadId,signal}={}){
       destination(config,destinationId);const key=keyFor(idempotencyKey);
-      if(remoteId!==undefined&&!TS.test(remoteId))throw failure('invalid_remote_id');
+      if(remoteId!==undefined&&remoteId!==null&&!TS.test(remoteId))throw failure('invalid_remote_id');
+      if(threadId!==undefined&&threadId!==null&&!TS.test(threadId))throw failure('invalid_thread');
       try{
-        const result=await request('conversations.history',{channel:destinationId,limit:15,include_all_metadata:true,...(remoteId?{oldest:remoteId,latest:remoteId,inclusive:true}:{})},signal);
-        const match=Array.isArray(result.messages)&&result.messages.find(message=>TS.test(message?.ts??'')&&message?.metadata?.event_type==='agent_twin_delivery'&&message.metadata.event_payload?.deliveryKey===key&&(!remoteId||message.ts===remoteId));
+        const result=await request(threadId?'conversations.replies':'conversations.history',{channel:destinationId,limit:15,include_all_metadata:true,...(threadId?{ts:threadId}:{}),...(remoteId?{oldest:remoteId,latest:remoteId,inclusive:true}:{})},signal);
+        const match=Array.isArray(result.messages)&&result.messages.find(message=>TS.test(message?.ts??'')&&message?.metadata?.event_type==='agent_twin_delivery'&&message.metadata.event_payload?.deliveryKey===key&&(!remoteId||message.ts===remoteId)&&(!threadId||message.thread_ts===threadId));
         return match?{status:'sent',remoteId:match.ts}:{status:'unknown'};
       }catch{return{status:'unknown'};}
     },
