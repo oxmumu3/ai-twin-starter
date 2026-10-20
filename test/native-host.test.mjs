@@ -48,6 +48,12 @@ test('desktop custom-scheme requests require the same authority instead of equat
   assert.equal((await route.fetch(new Request('dsh-app://app/api/agent_twin/status',{headers:{Origin:'file://elsewhere'}}))).status,403);
   assert.equal((await route.fetch(new Request('dsh-app://app/api/agent_twin/status',{headers:{Origin:'dsh-app://app'}}))).status,200);await host.close();
 });
+test('official SDK bridge internal Request URL checks browser Origin against preserved admitted Host authority',async()=>{
+  const f=fixture(),host=createNativeHost(f.ctx,{service:f.service}),route=f.routes.get('/api/agent_twin/status');
+  const valid=new Request('http://dsh.internal/api/agent_twin/status',{headers:{Host:'127.0.0.1:63470',Origin:'http://127.0.0.1:63470'}});
+  const invalid=new Request('http://dsh.internal/api/agent_twin/status',{headers:{Host:'127.0.0.1:63470',Origin:'https://evil.invalid'}});
+  assert.equal((await route.fetch(valid)).status,200);assert.equal((await route.fetch(invalid)).status,403);await host.close();
+});
 test('errors are generic and never return raw model/network credentials or payloads',async()=>{
   const f=fixture();f.service.command=async()=>{throw new Error('Bearer synthetic-private-api-key');};const host=createNativeHost(f.ctx,{service:f.service});
   const response=await f.routes.get('/api/agent_twin/action').fetch(request('/api/agent_twin/action',{action:'pause',payload:{},expectedRevision:1}));

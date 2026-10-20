@@ -26,7 +26,15 @@ function noSecrets(value,depth=0){
 function sameOrigin(request){
   if(request.headers.get('Sec-Fetch-Site')==='cross-site')return false;
   const origin=request.headers.get('Origin');if(origin===null)return true;
-  try{const target=new URL(request.url),source=new URL(origin);return origin!=='null'&&['http:','https:','dsh-app:'].includes(target.protocol)&&source.protocol===target.protocol&&source.host===target.host&&!source.username&&!source.password&&['','/'].includes(source.pathname)&&!source.search&&!source.hash;}catch{return false;}
+  try{
+    const target=new URL(request.url),source=new URL(origin);
+    // The SDK node:http bridge intentionally uses a carrier-neutral internal
+    // Request URL. Its already-admitted Host header preserves the real browser
+    // authority; using the synthetic URL would reject every valid browser POST.
+    const bridge=target.origin==='http://dsh.internal',host=request.headers.get('Host');
+    const authority=bridge&&host&&['http:','https:'].includes(source.protocol)?new URL(`${source.protocol}//${host}`):target;
+    return origin!=='null'&&['http:','https:','dsh-app:'].includes(authority.protocol)&&source.protocol===authority.protocol&&source.host===authority.host&&!source.username&&!source.password&&['','/'].includes(source.pathname)&&!source.search&&!source.hash;
+  }catch{return false;}
 }
 function get(ctx,name){try{return ctx.get(name,false);}catch{return undefined;}}
 function projects(ctx){
