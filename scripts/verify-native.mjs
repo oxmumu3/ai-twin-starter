@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, mkdtemp, rm, lstat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -25,6 +26,18 @@ for (const path of paths) {
 }
 new vm.Script(await readFile(join(root, 'src/client.js'), 'utf8'));
 const tarball = await readFile(join(destination, manifest.filename));
+const extracted = await mkdtemp(join(tmpdir(), 'twin-package-check-'));
+try {
+  const unpack = spawnSync('tar', ['-xzf', join(destination, manifest.filename), '-C', extracted], { encoding: 'utf8' });
+  assert.equal(unpack.status, 0, 'tarball extraction failed');
+  for (const path of paths) {
+    const actual = join(extracted, 'package', path);
+    assert.ok((await lstat(actual)).isFile(), `Non-regular packaged entry: ${path}`);
+    assert.deepEqual(await readFile(actual), await readFile(join(root, path)), `Tarball differs from checked source: ${path}`);
+  }
+} finally {
+  await rm(extracted, { recursive: true, force: true });
+}
 const sha256 = createHash('sha256').update(tarball).digest('hex');
 await writeFile(join(destination, 'SHA256SUMS'), `${sha256}  ${manifest.filename}\n`);
-console.log(JSON.stringify({ filename: manifest.filename, bytes: tarball.length, files: paths.length, sha256, privateDataChecks: 'passed', clientSyntax: 'passed' }, null, 2));
+console.log(JSON.stringify({ filename: manifest.filename, bytes: tarball.length, files: paths.length, sha256, privateDataChecks: 'passed', tarballMatchesSource: true, clientSyntax: 'passed' }, null, 2));

@@ -1,8 +1,14 @@
 # 给安装此项目的 Agent
 
+先读 README 与全部 GitHub Releases（包含预发布），选择已经公开、与当前宿主兼容的版本，核对对应包及 `SHA256SUMS`。不要把源码分支或本地打包等同公开下载，不要只查 `/releases/latest`。
+
+**0.4 原生工作台**：DeepSeek Harness Web 0.2.1-rc.2 使用 [原生运行手册](docs/native.md)，由宿主真实模型完成整理与蒸馏；需要本人自己的 Slack 授权和明确启用。Desktop 0.2.1-rc.2 的集成尚未验收，其他宿主版本需重新验证。首次搭建与日常管理共享四个常驻模块。
+
+**以下为兼容 0.3 的通用 CLI / `agent_twin` 路径**：由当前 Agent 组织材料与卡片，`channel-tick` 始终只读 dry-run；它的 `ready:false` 不代表原生工作台已配置或已启用。两条路径分别验收。
+
 按四步完成：**准备分身材料 → 蒸馏分身 → 连接通道 → 设定权限**。用户负责指定范围、补充必要事实及自己的渠道授权；命令、JSON 提案和材料组织由你负责。不要把第一步变成让用户填写一堆模板，也不要默认项目已经条分缕析。
 
-先读源码和本说明，保留已有目录与用户改动，不覆盖或重置。要求 Node.js 22+。CLI 使用内置模块；DSH 用 `agent_twin` 的对应操作，当前目录与写入范围由宿主提供。缺少授权时报告缺口，本说明不单独授予额外读取、发送或后台调度权限。
+先读源码和本说明，保留已有目录与用户改动，不覆盖或重置。要求 Node.js 22.13+。CLI 使用内置模块；DSH 用 `agent_twin` 的对应操作，当前目录与写入范围由宿主提供。缺少授权时报告缺口，本说明不单独授予额外读取、发送或后台调度权限。
 
 ## 1. 准备分身材料
 
@@ -98,3 +104,23 @@ node bin/agent-twin.mjs channel-tick --cwd /absolute/path/to/project
 项目资料可以边工作边积累，定期盘点新增材料并有选择地准备、蒸馏；缺口和未接通工具保留原状态。已经确认的设置直接沿用，不让用户重复提供。
 
 最终分别报告：元数据盘点范围、材料包与缺口、知识包与来源时效、通道认证/入站读取/本人目的地、代码权限 dry-run、正式收发、调度在线。服务启停按生成的 RUNBOOK 执行；宿主无法保证串行或互斥时保持人工模式。不要把前一步的完成当作后一步的证据。
+
+## 本地有界工作流与材料回流
+
+以下 CLI 由本机当前 Agent 在获准且已 `init` 的项目中显式执行，未接入原生实时接单服务，不授予来信发送人调用本机工具的权限。
+
+```sh
+node bin/agent-twin.mjs workflow-daily-report --cwd ./my-project --entry reports/daily.csv
+```
+
+日报流程仅消费显式选定的项目内 CSV，表头须为 `date,orders,revenue,cost`，最多 1000 行、256 KiB。金额非负，最多 12 位整数和两位小数；订单数为最多 9 位的非负整数。按日期汇总，重复行会累加，调用者须确保货币单位一致；不合格行排除并计入 warning，全部无效时拒绝生成，使用前须复核。结果写入 `twin-project/outputs/daily-report-UUID.md`。它生成本地汇总，不能证明原数据正确、分析已批准或报告已发送。
+
+```sh
+node bin/agent-twin.mjs capture-submit --cwd ./my-project --entry notes/new-learning.md
+node bin/agent-twin.mjs capture-status --cwd ./my-project --id CAPTURE_UUID
+node bin/agent-twin.mjs capture-adopt --cwd ./my-project --id CAPTURE_UUID --owner-confirm adopt
+```
+
+`capture-submit` 接收明确选择的 Markdown/纯文本（原始文件不超过 60 KiB），先留为待采用材料；CLI 返回元数据，不回显正文。当前 Agent 须让本人审阅并明确采用，才运行最后一条；`--owner-confirm adopt` 是本机显式确认参数，不是远程身份认证。采用后生成 `twin-project/context/captured/CAPTURE_UUID.md`，仍需选择为来源、重新整理和蒸馏，才能进入能力包。提交或采用材料都不会自动扩大读取范围、发布知识或启用服务。
+
+待采用原件保存在 `twin-project/captures/CAPTURE_UUID.json`，不属于可蒸馏的 Markdown/纯文本来源；不要转换或绕过确认把它当作正式材料。采用后可用返回的 `source` 路径直接 `materials-prepare --entry`，或以 `twin-project` 为盘点根，避免默认深度遗漏。原生版重新蒸馏后还须试跑并明确采用能力候选。

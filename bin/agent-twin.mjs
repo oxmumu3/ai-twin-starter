@@ -3,9 +3,10 @@ import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { initWorkspace, inspectWorkspace, readRunbook } from '../src/workspace.mjs';
 
-const usage = 'Usage: agent-twin init|status|runbook|materials-inventory|materials-prepare|materials-apply|materials-status|materials-distill|distill-prepare|distill-apply|distill-status|distill-refresh|distill-read|channel-probe|channel-status|channel-tick [--cwd <directory>] [--root <relative-directory>] [--entry <relative-file>] [--batch <id> --cards <json-file> | --packet <json-file>]';
-const commands = new Set(['init', 'status', 'runbook', 'materials-inventory', 'materials-prepare', 'materials-apply', 'materials-status', 'materials-distill', 'distill-prepare', 'distill-apply', 'distill-status', 'distill-refresh', 'distill-read', 'channel-probe', 'channel-status', 'channel-tick']);
+const usage = 'Usage: agent-twin init|status|runbook|materials-inventory|materials-prepare|materials-apply|materials-status|materials-distill|distill-prepare|distill-apply|distill-status|distill-refresh|distill-read|channel-probe|channel-status|channel-tick|workflow-daily-report|capture-submit|capture-adopt|capture-status [--cwd <directory>] [--root <relative-directory>] [--entry <relative-file>] [--batch <id> --cards <json-file> | --packet <json-file>]';
+const commands = new Set(['init', 'status', 'runbook', 'materials-inventory', 'materials-prepare', 'materials-apply', 'materials-status', 'materials-distill', 'distill-prepare', 'distill-apply', 'distill-status', 'distill-refresh', 'distill-read', 'channel-probe', 'channel-status', 'channel-tick', 'workflow-daily-report', 'capture-submit', 'capture-adopt', 'capture-status']);
 const flagsByCommand = {
+  'workflow-daily-report': ['--entry'], 'capture-submit': ['--entry'], 'capture-adopt': ['--id', '--owner-confirm'], 'capture-status': ['--id'],
   'materials-inventory': ['--root'], 'materials-prepare': ['--entry'], 'materials-apply': ['--batch', '--packet'],
   'distill-prepare': ['--entry'], 'distill-apply': ['--batch', '--cards'],
 };
@@ -28,6 +29,9 @@ function parseArguments(args) {
   if (['materials-prepare', 'distill-prepare'].includes(command) && !result.entries.length) throw new Error(`${command} requires explicit --entry files`);
   if (command === 'distill-apply' && (!result.batch || !result.cards)) throw new Error('distill-apply requires --batch and --cards');
   if (command === 'materials-apply' && (!result.batch || !result.packet)) throw new Error('materials-apply requires --batch and --packet');
+  if (['workflow-daily-report', 'capture-submit'].includes(command) && result.entries.length !== 1) throw new Error(`${command} requires exactly one --entry`);
+  if (['capture-adopt', 'capture-status'].includes(command) && !result.id) throw new Error(`${command} requires --id`);
+  if (command === 'capture-adopt' && result['owner-confirm'] !== 'adopt') throw new Error('capture-adopt requires --owner-confirm adopt');
   return result;
 }
 
@@ -42,6 +46,13 @@ async function readProposal(path) {
 
 async function execute(options) {
   const { command, cwd } = options;
+  if (command === 'workflow-daily-report') return (await import('../src/bounded-workflows.mjs')).runDailyReport(cwd, options.entries[0]);
+  if (command.startsWith('capture-')) {
+    const capture = await import('../src/material-capture.mjs');
+    if (command === 'capture-submit') return capture.submitCapture(cwd, options.entries[0]);
+    if (command === 'capture-adopt') return capture.adoptCapture(cwd, options.id, options['owner-confirm']);
+    return capture.inspectCapture(cwd, options.id);
+  }
   if (command === 'init') return initWorkspace(cwd);
   if (command === 'status') return inspectWorkspace(cwd);
   if (command.startsWith('materials-')) {

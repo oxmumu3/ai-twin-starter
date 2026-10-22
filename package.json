@@ -4,7 +4,7 @@
   "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
   "type": "module",
   "license": "MIT",
-  "author": "牛村木木山",
+  "author": "奥克斯木木山",
   "repository": {
     "type": "git",
     "url": "https://github.com/oxmumu3/ai-twin-starter.git"
@@ -38,7 +38,8 @@
     "docs/dsh-install.md",
     "docs/architecture.md",
     "docs/distill.md",
-    "docs/native.md"
+    "docs/native.md",
+    "docs/release-0.4.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
