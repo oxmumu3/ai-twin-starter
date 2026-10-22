@@ -26,6 +26,18 @@
       },
       "versions": [
         {
+          "version": "0.4.0-preview.2",
+          "publishTimestamp": 1792702954,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/oxmumu3/ai-twin-starter",
+            "commit": "8afe64873a08084c67573233fca37917ae252b51"
+          },
+          "engines": {
+            "dsh": "0.2.1-rc.2"
+          }
+        },
+        {
           "version": "0.4.0-preview.1",
           "publishTimestamp": 1792698768,
           "source": {
