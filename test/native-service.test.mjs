@@ -184,6 +184,58 @@ test("first use persists four modules and only explicit enable becomes daily", a
   assert.equal(s.tasks.length, 0);
   assert.ok(s.materials.packet.gaps.length);
 });
+test("adopted mixed card view separates candidates from source-stale documented cards", async (t) => {
+  const f = await fixture(t);
+  const run = f.executor.run;
+  f.executor.run = async (request) => {
+    const result = await run(request);
+    if (request.kind === "distill")
+      result.cards.push({
+        ...result.cards[0],
+        id: "candidate-note",
+        status: "candidate",
+      });
+    return result;
+  };
+  const c = await prepare(f);
+  let s = await f.service.snapshot();
+  assert.equal(s.ability.adopted.cards.length, 3);
+  assert.deepEqual(s.ability.adopted.validCardIds, ["card-0", "card-1"]);
+  assert.deepEqual(s.ability.adopted.staleCardIds, []);
+  assert.deepEqual(s.ability.adopted.candidateCardIds, ["candidate-note"]);
+  assert.equal(s.ability.status, "ready");
+
+  await c("enable");
+  await c("submit_request", {
+    senderId: "U1",
+    destinationId: "C1",
+    text: "Summarize the documented knowledge",
+    scope: "knowledge",
+    action: "reply",
+  });
+  s = await f.service.snapshot();
+  await c("task_step", { taskId: s.tasks.at(-1).id });
+  const taskCall = f.calls.find(
+    (call) => call.kind === "task" && call.input.request.scope,
+  );
+  assert.deepEqual(taskCall.input.cards.map((card) => card.id), ["card-0"]);
+
+  await writeFile(join(f.cwd, "notes.md"), "Changed synthetic background.\n");
+  s = await f.service.snapshot();
+  assert.deepEqual(s.ability.adopted.validCardIds, ["card-1"]);
+  assert.deepEqual(s.ability.adopted.staleCardIds, ["card-0"]);
+  assert.deepEqual(s.ability.adopted.candidateCardIds, ["candidate-note"]);
+  assert.deepEqual(s.ability.scopes, ["workflow"]);
+  assert.equal(s.ability.status, "ready");
+
+  await writeFile(join(f.cwd, "flow.md"), "Changed synthetic workflow.\n");
+  s = await f.service.snapshot();
+  assert.deepEqual(s.ability.adopted.validCardIds, []);
+  assert.deepEqual(s.ability.adopted.staleCardIds, ["card-0", "card-1"]);
+  assert.deepEqual(s.ability.adopted.candidateCardIds, ["candidate-note"]);
+  assert.deepEqual(s.ability.scopes, []);
+  assert.equal(s.ability.status, "stale");
+});
 test("unauthorized requests never read private cards into executor; approved reply is destination-bound and deduplicated", async (t) => {
   const f = await fixture(t);
   const c = await prepare(f);
@@ -874,6 +926,29 @@ test("candidate trial generates an inspectable draft without sending or enabling
   s = await f.service.snapshot();
   assert.equal(s.ability.candidate.test.passed, false);
   assert.equal(s.ability.candidate.test.output, null);
+});
+test("failed model terminal outcomes cannot save a partial candidate trial or enable delivery", async (t) => {
+  const f = await fixture(t), c = (a, p) => f.service.command(a, p);
+  await c("configure_project", { projectId: "p1", sessionId: "s1", cwd: f.cwd, title: "Trial project", goal: "Produce summaries", mechanism: "Use sources" });
+  await c("select_sources", { entries: ["notes.md", "flow.md"] });
+  await c("organize");
+  await c("distill");
+  const before = await f.service.snapshot(), base = f.executor.run;
+  for (const code of ["model_token_limit", "model_provider_failed", "model_aborted", "model_incomplete"]) {
+    f.executor.run = async (p) => {
+      if (p.kind === "task") throw Object.assign(new Error(code), { code });
+      return base(p);
+    };
+    await assert.rejects(c("test_candidate"), (error) => error.code === code);
+    const after = await f.service.snapshot();
+    assert.deepEqual(after.ability.candidate, before.ability.candidate);
+    assert.equal(after.revision, before.revision);
+    assert.equal(after.service.enabled, false);
+    assert.equal(after.tasks.length, 0);
+    assert.equal(after.outbox.length, 0);
+    assert.equal(f.delivery.length, 0);
+    await assert.rejects(c("adopt_candidate"), (error) => error.code === "candidate_untested");
+  }
 });
 test("uncertain task receipt checks preserve the original thread destination", async (t) => {
   const f = await fixture(t),

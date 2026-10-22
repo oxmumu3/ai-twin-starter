@@ -12,6 +12,7 @@ async function moduleValue(){
 }
 const snapshot=(revision=0)=>({schemaVersion:1,revision,project:null,materials:{entries:[],inventory:[],status:'empty'},ability:{candidate:null,adopted:null,history:[]},channel:{config:{},status:'unconfigured'},identities:[],rules:{},service:{enabled:false,everEnabled:false},tasks:[],outbox:[],events:[],readiness:{project:false,ability:false,channels:false,rules:false,canEnable:false,gaps:[]},runtime:{executorConfigured:false,transportConfigured:false}});
 async function host(t,handler){const server=http.createServer(handler);await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));return `http://127.0.0.1:${server.address().port}`;}
+async function ready(render, content) { for (let i = 0; i < 200; i++) { const tree = render(); if (content(tree).includes('宿主状态修订')) return tree; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('Native client did not finish its initial authoritative read'); }
 
 test('native client sends an explicit expected revision and accepts authoritative snapshots',async t=>{
   const calls=[];
@@ -29,6 +30,21 @@ test('lost mutation response is never retried and requires a fresh authoritative
   await client.command('enable',{});assert.equal(client.getSnapshot().uncertain,true);assert.equal(writes,1);
   await client.command('enable',{});assert.equal(writes,1);
   await client.refresh();assert.equal(client.getSnapshot().uncertain,false);assert.equal(client.getSnapshot().snapshot.revision,1);
+});
+
+test('automatic reads never clear a command failure or uncertainty; only a successful explicit refresh unlocks writes', async t => {
+  for (const status of [409, 500]) {
+    let writes = 0, failRead = false;
+    const baseUrl = await host(t, (req, res) => { res.setHeader('Content-Type', 'application/json'); if (req.method === 'POST') { writes++; res.statusCode = status; res.end(JSON.stringify({ error: '候选试跑结果未通过检查', code: 'candidate_trial_output_invalid' })); return; } res.end(JSON.stringify(failRead ? { malformed: true } : snapshot(2))); });
+    const { createTwinClient } = await moduleValue(), client = createTwinClient({ baseUrl, fetch }); t.after(() => client.close());
+    await client.refresh(); await client.command('test_candidate', { prompt: 'Run an evidence check' });
+    const failure = client.getSnapshot().error; assert.ok(failure); assert.equal(client.getSnapshot().uncertain, status !== 409);
+    await client.refresh({ automatic: true }); assert.equal(client.getSnapshot().error, failure); assert.equal(client.getSnapshot().stale, true); assert.equal(client.getSnapshot().uncertain, status !== 409);
+    await client.command('test_candidate', {}); assert.equal(writes, 1);
+    failRead = true; await client.refresh(); assert.equal(client.getSnapshot().stale, true); assert.ok(client.getSnapshot().error.includes(failure), 'a failed explicit refresh must retain the command failure');
+    failRead = false; await client.refresh({ automatic: true }); assert.equal(client.getSnapshot().stale, true); assert.ok(client.getSnapshot().error.includes(failure));
+    await client.refresh(); assert.equal(client.getSnapshot().stale, false); assert.equal(client.getSnapshot().uncertain, false); assert.equal(client.getSnapshot().error, ''); assert.equal(writes, 1);
+  }
 });
 
 test('conflicting and malformed server replies cannot make the UI writable',async t=>{
@@ -60,7 +76,7 @@ test('native surface preserves the host shell and renders all four management mo
   const content=node=>typeof node==='string'?node:node?.children?.map(content).join('')??'';
   const find=(node,predicate)=>{if(!node||typeof node==='string')return null;if(predicate(node))return node;for(const child of node.children??[]){const match=find(child,predicate);if(match)return match;}return null;};
   const render=()=>{cursor=0;return expand(Main());};let tree=render();const stops=effects.map(fn=>fn());t.after(()=>stops.forEach(fn=>fn?.()));
-  await new Promise(resolve=>setTimeout(resolve,40));tree=render();assert.match(content(tree),/分身已暂停/);assert.match(content(tree),/待验收交付/);assert.match(content(tree),/通道报告已发出/);assert.equal(content(tree).includes('让分身从一个项目开始'),false);
+  tree=await ready(render,content);assert.match(content(tree),/分身已暂停/);assert.match(content(tree),/待验收交付/);assert.match(content(tree),/通道报告已发出/);assert.equal(content(tree).includes('让分身从一个项目开始'),false);
   for(const [label,expected] of [['项目沉淀','明确项目目标'],['分身能力','当前采用版'],['通道连接','读取已核验'],['身份与规则','每 27 分钟检查']]){const button=find(tree,node=>node.type==='button'&&content(node)===label);assert.ok(button);button.props.onClick();tree=render();assert.match(content(tree),new RegExp(expected));assert.match(content(tree),/专用会话：service-1/);}
 });
 
@@ -74,7 +90,7 @@ test('candidate trial collects a concrete task and renders actual draft and proj
   vm.runInNewContext(code,{window:{__ModuleLoader__:{load:entry=>{plugin=entry.factory(name=>name==='react'?React:{Modal:'native-modal',SettingsForm:'native-settings-form',SettingsSecretField:'native-secret-field'});}}},AbortController,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,fetch:(url,options)=>fetch(baseUrl+url,options),URL,FormData:class{constructor(values){this.values=values;}get(name){return this.values[name]??null;}},console});
   const registrations=[];plugin.apply({layout:{selectPanel(){}},effect(fn){const off=fn();if(typeof off==='function')disposers.push(off);},slots:{inject(_name,fn){return fn();},register(options,Component){registrations.push({options,Component});return()=>{};}}});t.after(()=>disposers.forEach(fn=>fn()));const Main=registrations.find(x=>x.options.name==='main').Component;
   function expand(node){if(node==null||typeof node==='boolean')return null;if(typeof node!=='object')return String(node);if(Array.isArray(node))return node.flatMap(expand);if(typeof node.type==='function')return expand(node.type({...node.props,children:node.children}));return{...node,children:node.children.flatMap(child=>{const out=expand(child);return Array.isArray(out)?out:[out];}).filter(x=>x!==null)};}
-  const content=node=>typeof node==='string'?node:node?.children?.map(content).join('')??'';const find=(node,predicate)=>{if(!node||typeof node==='string')return null;if(predicate(node))return node;for(const child of node.children??[]){const match=find(child,predicate);if(match)return match;}return null;};const render=()=>{cursor=0;return expand(Main());};let tree=render();effects.forEach(fn=>{const off=fn();if(typeof off==='function')disposers.push(off);});await new Promise(r=>setTimeout(r,30));tree=render();
+  const content=node=>typeof node==='string'?node:node?.children?.map(content).join('')??'';const find=(node,predicate)=>{if(!node||typeof node==='string')return null;if(predicate(node))return node;for(const child of node.children??[]){const match=find(child,predicate);if(match)return match;}return null;};const render=()=>{cursor=0;return expand(Main());};let tree=render();effects.forEach(fn=>{const off=fn();if(typeof off==='function')disposers.push(off);});tree=await ready(render,content);
   find(tree,node=>node.type==='button'&&content(node)==='项目沉淀').props.onClick();tree=render();assert.match(content(tree),/twin-project\/context/);assert.match(content(tree),/CAPTURE.md/);assert.match(content(tree),/保留.*PROJECT.md/);
   find(tree,node=>node.type==='button'&&content(node)==='分身能力').props.onClick();tree=render();assert.equal(find(tree,node=>node.type==='button'&&content(node)==='核对并采用').props.disabled,true);
   find(tree,node=>node.type==='button'&&content(node)==='对候选执行试跑').props.onClick();tree=render();assert.ok(find(tree,node=>node.type==='native-modal'));assert.ok(find(tree,node=>node.type==='textarea'&&node.props.name==='prompt'));
@@ -93,7 +109,7 @@ test('identity editor preserves an existing expired timestamp and only clears it
   vm.runInNewContext(code,{window:{__ModuleLoader__:{load:entry=>{plugin=entry.factory(name=>name==='react'?React:{Modal:'native-modal',SettingsForm:'native-settings-form',SettingsSecretField:'native-secret-field'});}}},AbortController,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,fetch:(url,options)=>fetch(baseUrl+url,options),URL,FormData:class{constructor(values){this.values=values;}get(name){return this.values[name]??null;}getAll(name){return this.values[name]??[];}},console});
   const registrations=[];plugin.apply({layout:{selectPanel(){}},effect(fn){const off=fn();if(typeof off==='function')disposers.push(off);},slots:{inject(_name,fn){return fn();},register(options,Component){registrations.push({options,Component});return()=>{};}}});t.after(()=>disposers.forEach(fn=>fn()));const Main=registrations.find(x=>x.options.name==='main').Component;
   function expand(node){if(node==null||typeof node==='boolean')return null;if(typeof node!=='object')return String(node);if(Array.isArray(node))return node.flatMap(expand);if(typeof node.type==='function')return expand(node.type({...node.props,children:node.children}));return{...node,children:node.children.flatMap(child=>{const out=expand(child);return Array.isArray(out)?out:[out];}).filter(x=>x!==null)};}
-  const content=node=>typeof node==='string'?node:node?.children?.map(content).join('')??'';const find=(node,predicate)=>{if(!node||typeof node==='string')return null;if(predicate(node))return node;for(const child of node.children??[]){const match=find(child,predicate);if(match)return match;}return null;};const render=()=>{cursor=0;return expand(Main());};let tree=render();effects.forEach(fn=>{const off=fn();if(typeof off==='function')disposers.push(off);});await new Promise(r=>setTimeout(r,30));tree=render();
+  const content=node=>typeof node==='string'?node:node?.children?.map(content).join('')??'';const find=(node,predicate)=>{if(!node||typeof node==='string')return null;if(predicate(node))return node;for(const child of node.children??[]){const match=find(child,predicate);if(match)return match;}return null;};const render=()=>{cursor=0;return expand(Main());};let tree=render();effects.forEach(fn=>{const off=fn();if(typeof off==='function')disposers.push(off);});tree=await ready(render,content);
   find(tree,node=>node.type==='button'&&content(node)==='身份与规则').props.onClick();tree=render();find(tree,node=>node.type==='button'&&content(node)==='管理').props.onClick();tree=render();
   const input=find(tree,node=>node.type==='input'&&node.props.name==='expiresAt');assert.ok(input,'saved expiration must be visible in the identity editor');assert.equal(input.props.defaultValue,expiry);assert.equal(input.props.type,'text');assert.match(content(tree),/时区/);assert.match(content(tree),/留空.*取消/);
   const fields={name:'限时同事',senderId:'U1',role:'colleague',scopes:['knowledge'],actions:['read'],destinationIds:'C1',enabled:'on',expiresAt:input.props.defaultValue};

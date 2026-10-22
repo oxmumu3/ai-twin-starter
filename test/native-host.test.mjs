@@ -100,9 +100,59 @@ test('native executor uses current host model with bounded tools-free prompt and
   const executor=createNativeExecutor(f.ctx);assert.deepEqual(await executor.run({kind:'organize',input:{sources:[]}}),value);
   assert.equal(f.calls[0].config.provider,'synthetic');assert.deepEqual(f.calls[0].input.tools,[]);assert.match(f.calls[0].input.system,/source|来源|证据/i);executor.close();
 });
+function controlledModelContext(selection,reasoning,value){
+  const calls=[],snapshot=structuredClone(selection);Object.freeze(selection);
+  const ctx={get:name=>({agentDefaultModel:{currentSelection:()=>selection},llm:{prepareCall:async(config,signal,configure)=>{
+    const {provider,model,...controls}=config;
+    const modelInfo=Object.freeze({provider,id:model,...reasoning===undefined?{}:{reasoning:Object.freeze({efforts:Object.freeze(reasoning.map(id=>Object.freeze({id})))})}});
+    const original=Object.freeze(controls),configured=configure?configure(original,modelInfo):original;
+    const prepared=Object.freeze({...configured,provider,model});calls.push({config:prepared,controls:original,signal});
+    return{config:prepared,async *stream(input){calls.at(-1).input=input;yield* outputChunks(value);}};
+  }}}[name])};return{ctx,calls,selection,snapshot};
+}
+test('bounded semantic work uses supported low reasoning per call without mutating the host selection',async()=>{
+  const values={organize:{packet:{}},distill:{cards:[{}]},test_candidate:{passed:false,cases:[]},test_rules:{passed:false,cases:[]},task:{output:'Checked draft'}};
+  for(const [kind,value] of Object.entries(values)){
+    const f=controlledModelContext({provider:'synthetic',model:'test-model',reasoningEffort:'max'},['off','low','high','max'],value),executor=createNativeExecutor(f.ctx);
+    await executor.run({kind,input:{}});
+    assert.equal(f.calls[0].config.reasoningEffort,'low');assert.equal(f.calls[0].input.reasoningEffort,'low');
+    assert.equal(f.calls[0].config.maxTokens,kind==='task'?6000:12000);
+    assert.equal(f.calls[0].controls.reasoningEffort,'max');assert.deepEqual(f.selection,f.snapshot);assert.deepEqual(f.calls[0].input.tools,[]);executor.close();
+  }
+});
+test('route selects advertised off then low reasoning with a bounded 2048 token budget',async()=>{
+  for(const [efforts,expected] of [[['max','low','off'],'off'],[['max','low'],'low'],[['max'],'max']]){
+    const f=controlledModelContext({provider:'synthetic',model:'test-model',reasoningEffort:'max'},efforts,{scope:'workflow'}),executor=createNativeExecutor(f.ctx);
+    await executor.run({kind:'route',input:{request:{text:'Help with the workflow'},allowedScopes:['workflow']}});
+    assert.equal(f.calls[0].config.reasoningEffort,expected);assert.equal(f.calls[0].config.maxTokens,2048);assert.deepEqual(f.selection,f.snapshot);executor.close();
+  }
+});
+test('models without advertised low reasoning keep their supported host controls and no effort is invented',async()=>{
+  for(const [selection,efforts] of [[{provider:'synthetic',model:'plain'},undefined],[{provider:'synthetic',model:'reasoner',reasoningEffort:'high'},['high','max']]]){
+    const f=controlledModelContext(selection,efforts,{output:'Checked draft'}),executor=createNativeExecutor(f.ctx);
+    await executor.run({kind:'task',input:{}});
+    assert.equal(f.calls[0].config.reasoningEffort,selection.reasoningEffort);assert.equal(Object.hasOwn(f.calls[0].config,'reasoningEffort'),Object.hasOwn(selection,'reasoningEffort'));assert.deepEqual(f.selection,f.snapshot);executor.close();
+  }
+});
 test('native executor rejects tool-call streams, truncated completion and unstructured prose',async()=>{
   for(const chunks of [[{type:'block-start',index:0,blockType:'tool-call'}],[{type:'text-delta',index:0,text:'{"output":"x"}'},{type:'finish',reason:{kind:'length'}}],[{type:'text-delta',index:0,text:'made up prose'},{type:'finish',reason:{kind:'stop'}}]]){
     const f=modelContext(chunks),executor=createNativeExecutor(f.ctx);await assert.rejects(executor.run({kind:'task',input:{request:{text:'help'},cards:[]}}));executor.close();
+  }
+});
+test('native executor classifies official terminal failures without retaining partial output or provider details',async()=>{
+  for(const [kind,code] of [['max-tokens','model_token_limit'],['error','model_provider_failed'],['aborted','model_aborted'],['unknown','model_incomplete']]){
+    const f=modelContext([{type:'text-delta',index:0,text:'{"output":"partial must not be accepted"}'},{type:'finish',reason:{kind,failure:{message:'Bearer synthetic-private-credential',request:'/private/project'}}}]);
+    const executor=createNativeExecutor(f.ctx);
+    await assert.rejects(executor.run({kind:'task',input:{cards:[]}}),error=>error.code===code&&error.message===code&&!JSON.stringify(error).includes('synthetic-private-credential'));
+    executor.close();
+  }
+});
+test('terminal model errors expose only fixed actionable host messages',async()=>{
+  for(const code of ['model_token_limit','model_provider_failed','model_aborted','model_incomplete']){
+    const f=fixture();f.service.command=async()=>{throw Object.assign(new Error('Bearer synthetic-private-credential'),{code});};
+    const host=createNativeHost(f.ctx,{service:f.service});
+    const result=await (await f.routes.get('/api/agent_twin/action').fetch(request('/api/agent_twin/action',{action:'test_candidate',payload:{},expectedRevision:1}))).json();
+    assert.equal(result.code,code);assert.match(result.error,/模型/);assert.ok(!JSON.stringify(result).includes('synthetic-private-credential'));await host.close();
   }
 });
 test('native executor requires non-empty task output and explicit evaluation verdict',async()=>{

@@ -19,6 +19,8 @@ window.__ModuleLoader__.load({
     const gapText = gap => ({ project_unbound: '先选择服务项目与专用会话。', materials_required: '选择并整理当前项目材料，补齐目标与关键机制。', ability_required: '生成、试跑并采用有来源依据的能力包。', channel_required: '完成通道读取核验与真实回传测试。', rules_required: '登记服务身份、保存规则，再执行当前权限试跑。', executor_missing: '尚未连接真实宿主模型执行器。', transport_missing: '尚未连接真实消息适配器。' })[gap.code] ?? gap.message ?? gap.code;
     const date = value => { try { return value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23' }).format(new Date(value)) : '暂无记录'; } catch { return '时间未知'; } };
     const fingerprint = value => typeof value === 'string' ? value.slice(0, 12) : '尚无来源版本';
+    const requestId = () => `work-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+    const projectBinding = project => JSON.stringify([project?.projectId, project?.cwd, project?.sessionId]);
 
     function validSnapshot(value) {
       return value && value.schemaVersion === 1 && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
@@ -27,7 +29,7 @@ window.__ModuleLoader__.load({
     }
     function createTwinClient({ fetch: fetcher = fetch, baseUrl = '', timeoutMs = 300000 } = {}) {
       let view = Object.freeze({ snapshot: null, projects: [], busy: false, stale: true, uncertain: false, error: '' });
-      let closed = false, flight = false;
+      let closed = false, flight = false, commandFailure = '';
       const listeners = new Set(), controllers = new Set();
       const publish = patch => { if (closed) return; view = Object.freeze({ ...view, ...patch }); for (const fn of [...listeners]) { try { fn(); } catch {} } };
       const request = async (path, body) => {
@@ -43,15 +45,18 @@ window.__ModuleLoader__.load({
           return result;
         } finally { clearTimeout(timer); controllers.delete(controller); }
       };
-      const refresh = async () => {
-        if (closed || flight) return false;
+      const refresh = async ({ automatic = false } = {}) => {
+        // A background read must not acknowledge a failed or ambiguous mutation
+        // for the owner. Keep its explanation and write lock until explicit review.
+        if (closed || flight || automatic && commandFailure) return false;
         flight = true; publish({ busy: true });
         try {
           const value = await request('/api/agent_twin/status');
           if (!validSnapshot(value)) throw new Error('分身状态格式不匹配，请核对客户端与服务版本。');
           if (view.snapshot && value.revision < view.snapshot.revision) throw new Error('服务返回了较旧状态，请刷新核对。');
+          commandFailure = '';
           publish({ snapshot: value, projects: Array.isArray(value.projects) ? value.projects : view.projects, stale: false, uncertain: false, error: '' }); return true;
-        } catch (failure) { publish({ stale: true, error: failure.message || '状态暂不可用，请刷新重试。' }); return false; }
+        } catch (failure) { const message = failure.message || '状态暂不可用，请刷新重试。'; publish({ stale: true, error: commandFailure ? `${commandFailure} 刷新未完成：${message}` : message }); return false; }
         finally { flight = false; publish({ busy: false }); }
       };
       const command = async (action, payload = {}) => {
@@ -61,13 +66,13 @@ window.__ModuleLoader__.load({
           const value = await request('/api/agent_twin/action', { action, payload, expectedRevision: view.snapshot.revision });
           if (!validSnapshot(value) || value.revision <= view.snapshot.revision) throw new Error('操作回执未能核对，请刷新当前状态。');
           publish({ snapshot: value, stale: false, uncertain: false, error: '' }); return true;
-        } catch (failure) { publish({ stale: true, uncertain: failure.status !== 409, error: `${failure.message || '操作结果待核对。'} 未自动重试；请先刷新当前状态。` }); return false; }
+        } catch (failure) { const code = typeof failure.code === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(failure.code) ? `（${failure.code}）` : ''; commandFailure = `${failure.message || '操作结果待核对。'}${code} 未自动重试；请先刷新当前状态。`; publish({ stale: true, uncertain: failure.status !== 409, error: commandFailure }); return false; }
         finally { flight = false; publish({ busy: false }); }
       };
       const loadProjects = async () => {
         if (closed) return [];
         try { const value = await request('/api/agent_twin/projects'); if (!Array.isArray(value?.projects)) throw new Error('项目列表暂不可用。'); publish({ projects: value.projects }); return value.projects; }
-        catch (failure) { publish({ error: failure.message || '项目列表暂不可用。' }); return []; }
+        catch (failure) { if (!commandFailure) publish({ error: failure.message || '项目列表暂不可用。' }); return []; }
       };
       return {
         getSnapshot: () => view,
@@ -96,8 +101,8 @@ window.__ModuleLoader__.load({
         const [view, setView] = React.useState(() => client.getSnapshot());
         React.useEffect(() => {
           const off = client.subscribe(() => setView(client.getSnapshot()));
-          void client.refresh();
-          const timer = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void client.refresh(); }, 15000);
+          void client.refresh({ automatic: true });
+          const timer = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void client.refresh({ automatic: true }); }, 15000);
           return () => { off(); clearInterval(timer); };
         }, []);
         return view;
@@ -120,7 +125,7 @@ window.__ModuleLoader__.load({
         const save = async () => {
           if (!form || flight.current || view.status !== 'ready' || !view.writable || draft === undefined) return;
           flight.current = true; setSaving(true); setFailed(false);
-          try { const ok = await form.mutate([draft === null ? { op: 'unset', path: ['slackBotToken'] } : { op: 'set', path: ['slackBotToken'], value: draft }], baseline.current); if (active.current) { if (ok === true) { discard(); setView(form.getSnapshot()); void client.refresh(); onSaved?.(); } else setFailed(true); } }
+          try { const ok = await form.mutate([draft === null ? { op: 'unset', path: ['slackBotToken'] } : { op: 'set', path: ['slackBotToken'], value: draft }], baseline.current); if (active.current) { if (ok === true) { discard(); setView(form.getSnapshot()); void client.refresh({ automatic: true }); onSaved?.(); } else setFailed(true); } }
           catch { if (active.current) setFailed(true); }
           finally { flight.current = false; if (active.current) setSaving(false); }
         };
@@ -139,8 +144,8 @@ window.__ModuleLoader__.load({
         const [projectChoice, setProjectChoice] = React.useState('');
         const writable = Boolean(s && !view.busy && !view.stale && !view.uncertain);
         const button = (label, onClick, props = {}) => h('button', { type: 'button', disabled: !writable, onClick, ...props }, label);
-        const open = (kind, data) => { setLocalError(''); setModal({ kind, data, key: `${kind}-${Date.now()}` }); if (kind === 'project') { setProjectChoice(s?.project?.projectId ?? ''); void client.loadProjects(); } if (kind === 'sources') setSelectedSources([...(s?.materials?.entries ?? [])]); };
-        const close = () => { if (!view.busy) { setModal(null); setLocalError(''); } };
+        const open = (kind, data) => { setLocalError(''); setModal({ kind, data, projectBinding: projectBinding(s?.project), requestId: ['daily-report-input', 'capture-input'].includes(kind) ? requestId() : undefined, key: `${kind}-${Date.now()}` }); if (kind === 'project') { setProjectChoice(s?.project?.projectId ?? ''); void client.loadProjects(); } if (kind === 'sources') setSelectedSources([...(s?.materials?.entries ?? [])]); };
+        const close = () => { if (!view.busy) { if (modal?.kind === 'sources') setSelectedSources([]); setModal(null); setLocalError(''); } };
         const run = async (action, payload = {}, closeOnSuccess = false) => { setLocalError(''); const ok = await client.command(action, payload); if (ok && closeOnSuccess) setModal(null); return ok; };
         const submit = (action, build, closeOnSuccess = true) => async event => { event.preventDefault(); try { const payload = build(new FormData(event.currentTarget)); await run(action, payload, closeOnSuccess); } catch (failure) { setLocalError(failure.message || '请核对输入内容。'); } };
         const field = (label, name, value = '', options = {}) => { const { multiline, hint, ...props } = options; return h('label', { className: 'at_field' }, h('span', null, label), h(multiline ? 'textarea' : 'input', { name, defaultValue: value ?? '', disabled: !writable, ...props }), hint ? h('small', { className: 'at_muted' }, hint) : null); };
@@ -152,6 +157,12 @@ window.__ModuleLoader__.load({
         const scopeNames = values => (values ?? []).map(x => ({ __explicit_scope_required__: '待主人确认范围', __scope_routing_unavailable__: '范围识别待核对' })[x] ?? scopes.find(([key]) => key === x)?.[1] ?? ability.adopted?.cards?.find(card => card.id === x)?.title ?? x).join('、') || '尚无授权';
         const formActions = (label = '保存') => h('div', { className: 'at_form_actions' }, button('取消', close, { disabled: view.busy }), h('button', { type: 'submit', disabled: !writable, className: 'at_primary' }, view.busy ? '处理中…' : label));
         const project = s?.project, readiness = s?.readiness ?? {}, materials = s?.materials ?? {}, ability = s?.ability ?? {}, channel = s?.channel ?? {}, rules = s?.rules?.config ?? {};
+        const workbench = s?.workbench ?? {}, reports = Array.isArray(workbench.reports) ? workbench.reports : [], captures = Array.isArray(workbench.captures) ? workbench.captures : [];
+        const inventory = Array.isArray(materials.inventory) ? materials.inventory : materials.inventory?.entries ?? [];
+        const selectableFiles = formats => inventory.filter(item => typeof item.path === 'string' && formats.includes(item.path.split('.').pop().toLowerCase()) && !['excluded', 'directory', 'unreadable'].includes(item.kind));
+        const workStatus = status => ({ running: '正在生成，等待结果', completed: '本地已生成', failed: '执行失败', submitting: '正在提交，等待结果', pending: '待审阅', adopting: '采纳结果待核对', adopted: '已采纳为正式来源' })[status] ?? textState(status);
+        const archiveLocation = kind => workbench.archive?.root ? `${workbench.archive.root}/${kind}/` : null;
+        const archiveNotice = kind => archiveLocation(kind) ? h('p', { className: 'at_muted' }, `已归档 ${workbench.archive.counts?.[kind] ?? 0} 条 · 项目内私有归档：${archiveLocation(kind)}。原文件保留，归档后可继续创建。`) : null;
         const readyMap = { project: readiness.project, ability: readiness.ability, channels: readiness.channels, rules: readiness.rules };
         const moduleCopy = {
           project: ['准备可复用的项目土壤', project ? `${materials.entries?.length ?? 0} 个显式来源 · ${textState(materials.status)}` : '选择服务项目、专用会话和材料读取范围'],
@@ -182,9 +193,38 @@ window.__ModuleLoader__.load({
           return h('div', null, h('div', { className: 'at_title' }, h('div', null, h('h2', null, '项目沉淀'), h('p', { className: 'at_muted' }, '先明确目标与机制，再从你选择的材料中整理 Context、SOP、判断、工具和成果。')), button(project ? '修改项目与框架' : '选择项目与会话', () => open('project'), { className: 'at_primary' })),
             h('div', { className: 'at_grid' }, h('article', { className: 'at_card' }, h('h3', null, '项目目标与关键机制'), project ? h('div', null, h('p', null, project.goal), h('p', { className: 'at_muted' }, project.mechanism), h('p', { className: 'at_muted' }, `目录：${project.cwd}`), h('p', { className: 'at_muted' }, `服务会话：${project.sessionId}`)) : empty('尚未绑定项目。切换宿主会话不会替分身绑定。')), h('article', { className: 'at_card' }, h('h3', null, '材料读取范围'), h('p', { className: 'at_muted' }, `${materials.entries?.length ?? 0} 个显式选择的文本来源；目录盘点只读取文件元数据。`), actions(button('盘点项目文件', () => run('inventory', { roots: ['.'] }), { disabled: !writable || !project }), button('选择来源', () => open('sources'), { disabled: !writable || !project }), button('整理选中材料', () => run('organize'), { className: 'at_primary', disabled: !writable || !materials.entries?.length || !s.runtime.executorConfigured })))),
             project?.structure ? section('已建立的项目沉淀结构', structureView(project.structure)) : null,
+            captureSection(),
             section('整理结果', materials.packet ? h('div', null, h('p', { className: 'at_muted' }, `来源指纹：${fingerprint(materials.fingerprint)} · ${textState(materials.status)}`), packetView(materials.packet)) : empty('尚未整理。先选择来源，再让执行器把零散材料整理成可检查的项目资产。')),
             section('当前来源', ...(materials.entries ?? []).map(path => h('div', { className: 'at_row', key: path }, h('span', { className: 'at_version' }, path))), !materials.entries?.length ? empty('还没有授权读取任何文件。') : null),
             materials.issues?.length ? section('待补与排除项', ...materials.issues.map((issue, i) => h('p', { className: 'at_muted', key: i }, `${issue.path ? `${issue.path}：` : ''}${issue.message ?? issue.code ?? issue}`))) : null);
+        }
+        function captureSection() {
+          return section('材料回流', h('p', { className: 'at_muted' }, '把一次工作的笔记、决策或复盘提交为待审材料。审阅正文并明确采纳后，才会保存为正式来源。'),
+            actions(button('提交工作材料', () => open('capture-input'), { className: 'at_primary', disabled: !writable || !project })),
+            h('p', { className: 'at_notice' }, '采纳材料不会自动更新分身能力。加入来源选择后，仍需整理、蒸馏、试跑并采用新能力版，才能用于之后的任务。'),
+            captures.length ? [...captures].reverse().map(item => h('article', { className: 'at_row', key: item.id }, h('div', null, h('strong', null, item.entry), h('p', { className: 'at_muted' }, `${workStatus(item.status)} · ${date(item.createdAt)}`), item.source ? h('p', { className: 'at_version' }, `正式来源：${item.source}`) : null, item.error ? h('p', { className: 'at_error at_muted' }, item.error.message ?? item.error.code) : null), actions(
+              ['pending', 'adopted'].includes(item.status) ? button('审阅材料', async () => { if (await run('capture_review', { id: item.id })) open('capture-review', { id: item.id }); }) : null,
+              item.status === 'submitting' ? button('核对并继续提交', () => run('capture_submit', { entry: item.entry, requestId: item.requestId })) : null,
+              item.status === 'adopting' ? button('继续已确认的采纳', () => run('capture_adopt', { id: item.id, confirmation: 'adopt' })) : null,
+              item.status === 'adopted' ? button('归档记录', () => open('archive-record', { kind: 'captures', id: item.id })) : null,
+              item.status === 'adopted' && item.source ? button(materials.entries?.includes(item.source) ? '已在读取范围' : '加入来源选择', () => run('select_sources', { entries: [...new Set([...(materials.entries ?? []), item.source])] }), { disabled: !writable || materials.entries?.includes(item.source) || (materials.entries?.length ?? 0) >= 16 }) : null))) : empty('还没有回流材料。每次提交、审阅和采纳的状态会保留在本机。'),
+            archiveNotice('captures'),
+            (materials.entries?.length ?? 0) >= 16 ? h('p', { className: 'at_muted' }, '读取范围已达 16 个来源；请先在“选择来源”中调整，再加入新材料。') : null);
+        }
+        function reportSummary(report) {
+          const warningLabels = { column_count: '列数不符合要求', missing_value: '缺少必填值', invalid_date: '日期无效', invalid_nonnegative_number: '订单数或金额不是有效非负数' };
+          return h('div', null,
+            report.totals ? h('div', { className: 'at_metrics' }, ...[['orders', '订单数'], ['revenue', '收入'], ['cost', '成本'], ['margin', '收入减成本']].map(([key, label]) => h('div', { className: 'at_metric', key, style: { minWidth: 0 } }, h('strong', { style: { fontSize: 'clamp(16px, 2vw, 25px)', overflowWrap: 'anywhere' } }, report.totals[key] ?? '未记录'), h('span', { className: 'at_muted' }, label)))) : null,
+            report.acceptedRows !== undefined ? h('p', { className: 'at_muted' }, `有效行 ${report.acceptedRows} · 排除行 ${report.rejectedRows ?? '未记录'}。只汇总有效行，金额单位沿用输入；重复行会累加，不推断订单去重。`) : null,
+            report.warnings?.length ? h('details', { open: true, className: 'at_notice at_warning' }, h('summary', null, '数据检查与排除项'), h('ul', null, ...report.warnings.map((warning, i) => h('li', { key: i }, `第 ${warning.row} 行：${warningLabels[warning.code] ?? warning.code}；未计入汇总。`)))) : report.status === 'completed' ? h('p', { className: 'at_muted' }, '本次未记录数据校验异常。') : null,
+            report.error ? h('p', { className: 'at_error' }, report.error.message ?? report.error.code) : null);
+        }
+        function dailyReportSection() {
+          const latest = [...reports].reverse().find(item => item.status === 'completed');
+          return section('本地日报', h('p', { className: 'at_muted' }, '选择项目内的 CSV，生成订单数、收入、成本汇总，并检查异常行。结果只保存在本地，未发送。'),
+            actions(button('选择 CSV 生成日报', () => open('daily-report-input'), { className: 'at_primary', disabled: !writable || !project })),
+            latest ? h('div', { className: 'at_card', style: { marginTop: 16 } }, h('h3', null, '最近一次完成的汇总'), h('p', { className: 'at_muted' }, `${latest.entry} · ${date(latest.completedAt ?? latest.createdAt)}`), reportSummary(latest)) : null,
+            h('h3', { style: { marginTop: 20 } }, '日报历史'), reports.length ? [...reports].reverse().map(item => h('div', { className: 'at_row', key: item.id }, h('div', null, h('strong', null, item.entry), h('p', { className: 'at_muted' }, `${workStatus(item.status)} · ${date(item.createdAt)} · 未发送`), item.error ? h('p', { className: 'at_error at_muted' }, item.error.message ?? item.error.code) : null), actions(button('查看日报', () => open('daily-report', { id: item.id }), { disabled: false }), item.status === 'completed' ? button('归档记录', () => open('archive-record', { kind: 'reports', id: item.id })) : null, item.status === 'running' ? button('核对并继续生成', () => run('run_daily_report', { entry: item.entry, requestId: item.requestId })) : null))) : empty('活动列表中还没有日报。首次准备和日常管理都可从这里生成，重新打开后继续查看历史。'), archiveNotice('reports'));
         }
         function structureView(structure) {
           const labels = { context: '事实背景、决策依据与复盘', sop: '高频流程、异常与验收', skills: '可复用能力与适用边界', tools: '连接、权限与实际可用状态', outputs: '成果、大礼包与原始依据索引' };
@@ -196,9 +236,9 @@ window.__ModuleLoader__.load({
             actions(button('盘点沉淀目录', () => run('inventory', { roots: [root] }), { disabled: !writable || !root }), button('选择沉淀材料作为来源', async () => { if (await run('inventory', { roots: [root] })) open('sources'); }, { disabled: !writable || !root })));
         }
         function trialReady(test) { return test?.passed === true && typeof test.output === 'string' && test.output.trim().length > 0 && typeof test.outputFingerprint === 'string' && test.outputFingerprint.length > 0; }
-        function trialView(test) {
+        function trialView(test, adoptedAt) {
           if (!test) return empty('还没有实际试跑记录。');
-          return h('div', null, h('p', { className: 'at_muted' }, `${trialReady(test) ? '已生成实际草稿，待你验收' : '试跑尚未通过，不能采用'} · ${date(test.checkedAt)}`),
+          return h('div', null, h('p', { className: 'at_muted' }, `${trialReady(test) ? adoptedAt ? '试跑通过，已明确采用' : '已生成实际草稿，待你验收' : '试跑尚未通过，不能采用'} · ${date(test.checkedAt)}`),
             test.reason ? h('p', { className: 'at_notice at_warning' }, reasons[test.reason] ?? test.reason) : null,
             h('h3', { className: 'at_section' }, '这次试跑任务'), h('pre', null, test.prompt || '未记录实际任务'), h('h3', { className: 'at_section' }, '实际试跑草稿'), h('pre', null, test.output || '尚未生成有效草稿；不能据此判断可交付。'),
             h('p', { className: 'at_muted' }, '此次仅使用候选中的已确认卡片生成草稿，不外发，不执行工具或改写外部系统。请核对内容、来源和适用边界。'),
@@ -211,10 +251,11 @@ window.__ModuleLoader__.load({
             packet.gaps?.length ? h('div', { className: 'at_notice' }, h('strong', null, '仍需补充'), h('ul', null, ...packet.gaps.map((gap, i) => h('li', { key: i }, gap.message ?? gap.description ?? gap.question ?? gap.title ?? String(gap))))) : null);
         }
         function bundleView(bundle, label) {
-          return h('article', { className: 'at_card' }, h('div', { className: 'at_between' }, h('h3', null, label), badge(`v${bundle.version ?? 1}`)), h('p', { className: 'at_muted' }, `${bundle.cards?.length ?? 0} 项能力 · ${scopeNames(bundle.scopes)}`), bundle.staleCardIds?.length ? h('p', { className: 'at_warning at_muted' }, `${bundle.staleCardIds.length} 项来源有变化，等待更新`) : null, h('p', { className: 'at_version' }, `来源 ${fingerprint(bundle.fingerprint)}`), h('p', { className: 'at_muted' }, `试跑：${!bundle.test ? '尚未实跑' : trialReady(bundle.test) ? '已生成实际草稿，待验收' : '缺少有效实跑产出'}`), actions(button('查看能力与依据', () => open('bundle', bundle), { disabled: false })));
+          return h('article', { className: 'at_card' }, h('div', { className: 'at_between' }, h('h3', null, label), badge(`v${bundle.version ?? 1}`)), h('p', { className: 'at_muted' }, `${bundle.cards?.length ?? 0} 项能力 · ${scopeNames(bundle.scopes)}`), bundle.staleCardIds?.length ? h('p', { className: 'at_warning at_muted' }, `${bundle.staleCardIds.length} 项来源有变化，等待更新`) : null, bundle.candidateCardIds?.length ? h('p', { className: 'at_muted' }, `${bundle.candidateCardIds.length}项内容仍待确认，未用于在线任务`) : null, h('p', { className: 'at_version' }, `来源 ${fingerprint(bundle.fingerprint)}`), h('p', { className: 'at_muted' }, trialReady(bundle.test) && bundle.adoptedAt ? '试跑通过，已明确采用' : `试跑：${!bundle.test ? '尚未实跑' : trialReady(bundle.test) ? '已生成实际草稿，待验收' : '缺少有效实跑产出'}`), actions(button('查看能力与依据', () => open('bundle', bundle), { disabled: false })));
         }
         function AbilityView() {
           return h('div', null, h('div', { className: 'at_title' }, h('div', null, h('h2', null, '分身能力'), h('p', { className: 'at_muted' }, '项目材料持续更新，运行中的分身只使用你明确采用的能力版。候选不会覆盖采用版。')), button('生成新候选', () => run('distill'), { className: 'at_primary', disabled: !writable || !materials.packet || !s.runtime.executorConfigured })),
+            dailyReportSection(),
             h('div', { className: 'at_grid' }, ability.adopted ? bundleView(ability.adopted, '当前采用版') : h('article', { className: 'at_card' }, h('h3', null, '当前采用版'), empty('尚未采用任何能力包。')), ability.candidate ? h('div', null, bundleView(ability.candidate, '待复核候选'), h('div', { className: 'at_notice' }, actions(button('对候选执行试跑', () => open('candidate-trial'), { disabled: !writable || !s.runtime.executorConfigured }), button('核对并采用', () => open('adopt'), { className: 'at_primary', disabled: !writable || !trialReady(ability.candidate.test) })))) : h('article', { className: 'at_card' }, h('h3', null, '待复核候选'), empty('整理项目材料后，生成带来源依据的候选能力。'))),
             ability.candidate?.test ? section('候选实际试跑记录', trialView(ability.candidate.test)) : null,
             ability.status === 'stale' || ability.adopted?.staleCardIds?.length ? h('div', { className: 'at_notice at_warning' }, '来源已变化。受影响任务会暂停；原采用版和历史记录继续保留。请重新整理、蒸馏和复核。') : null,
@@ -237,6 +278,51 @@ window.__ModuleLoader__.load({
         function modalContent() {
           if (!modal || !s) return null;
           const kind = modal.kind, row = modal.data;
+          if (['sources', 'daily-report-input', 'daily-report', 'capture-input', 'capture-review', 'archive-record'].includes(kind) && modal.projectBinding !== projectBinding(project)) return h('p', { className: 'at_notice' }, '服务项目已变化，请关闭此窗口后重新选择当前项目的文件。');
+          if (kind === 'archive-record') {
+            const item = (row.kind === 'reports' ? reports : captures).find(item => item.id === row.id);
+            if (!item) return empty('这条记录已不在当前项目活动列表中，请刷新核对。');
+            const eligible = row.kind === 'reports' ? item.status === 'completed' : item.status === 'adopted';
+            return h('div', null, h('p', null, `归档「${item.entry}」的这条记录？`), h('p', { className: 'at_notice' }, '归档后从活动列表移出，原文件和完整记录继续保留，腾出位置供日常工作使用。重复的旧请求仍会核对原记录。'),
+              item.output || item.source ? h('p', { className: 'at_version' }, `原文件：${item.output ?? item.source}`) : null,
+              archiveLocation(row.kind) ? h('p', { className: 'at_version' }, `归档目录：${archiveLocation(row.kind)}`) : null,
+              row.kind === 'captures' ? h('p', { className: 'at_muted' }, '已选择的来源继续保留；可在“选择来源”中管理。需要加入其他已归档材料时，先盘点项目文件。') : null,
+              h('div', { className: 'at_form_actions' }, button('取消', close, { disabled: view.busy }), button('确认归档记录', () => run('archive_workbench', { kind: row.kind, id: item.id }, true), { className: 'at_primary', disabled: !writable || !eligible })));
+          }
+          if (kind === 'daily-report-input' || kind === 'capture-input') {
+            const daily = kind === 'daily-report-input', formats = daily ? ['csv'] : ['md', 'txt'];
+            return h('div', null, h('p', { className: 'at_muted' }, `项目目录：${project?.cwd ?? '未绑定'}`),
+              h('p', { className: 'at_notice' }, daily ? 'CSV 表头必须依次为 date,orders,revenue,cost，日期为 YYYY-MM-DD，订单数为非负整数，金额为非负数且最多两位小数。最多 1000 行、256 KiB；金额单位须一致。生成结果仅保存在本地，未发送。' : '选择一份 .md / .txt 工作材料（最多 60 KiB）。提交只生成待审记录；先审阅正文，再由你明确采纳。'),
+              button('刷新文件列表', () => run('inventory', { roots: ['.'] })),
+              h('form', { onSubmit: submit(daily ? 'run_daily_report' : 'capture_submit', data => {
+                const selected = String(data.get('entrySelection') ?? '').trim(), typed = String(data.get('entry') ?? '').trim();
+                if (selected && typed) throw new Error('请选择列表文件或填写相对路径其中一项，避免读取错误文件。');
+                const entry = selected || typed;
+                if (!entry) throw new Error('请明确选择一个文件，或填写项目内相对路径。');
+                if (/^(?:[A-Za-z]:|[\\/])/.test(entry) || entry.includes('\\') || entry.includes('\0') || entry.split('/').some(part => !part || part.startsWith('.'))) throw new Error('请使用项目内相对路径，不含隐藏目录、绝对路径或上级目录。');
+                if (!formats.includes(entry.split('.').pop().toLowerCase())) throw new Error(`请选择 ${daily ? '.csv' : '.md / .txt'} 文件。`);
+                return { entry, requestId: modal.requestId };
+              }) }, select('从已盘点文件中选择', 'entrySelection', '', [['', '请选择一个文件'], ...selectableFiles(formats).map(item => [item.path, item.path])]),
+              field('或填写项目内相对路径', 'entry', '', { maxLength: 1024, placeholder: daily ? 'data/daily.csv' : 'notes/work-review.md', hint: '列表来自文件元数据；只有提交时才读取明确选择的文件正文。' }),
+              !selectableFiles(formats).length ? h('p', { className: 'at_muted' }, '还没有匹配文件。可以刷新文件列表，或填写已准备文件的相对路径。') : null,
+              formActions(daily ? '生成本地日报' : '提交待审材料')));
+          }
+          if (kind === 'daily-report') {
+            const report = reports.find(item => item.id === row.id);
+            if (!report) return empty('当前项目已无这条日报记录，请刷新核对。');
+            return h('div', null, h('p', { className: 'at_muted' }, `${report.entry} · ${workStatus(report.status)} · ${date(report.createdAt)}`), reportSummary(report), report.output ? h('p', { className: 'at_version' }, `本地文件：${report.output}`) : null, h('h3', { className: 'at_section' }, '报告正文预览'), h('pre', null, report.preview || '尚无可核对的报告正文。'), report.previewTruncated ? h('p', { className: 'at_notice' }, '预览已截断，完整报告保存在上面的本地文件。') : null, h('p', { className: 'at_muted' }, '仅本地生成，未发送。'));
+          }
+          if (kind === 'capture-review') {
+            const item = captures.find(item => item.id === row.id), review = workbench.review?.id === row.id ? workbench.review : null;
+            if (!item) return empty('当前项目已无这条材料记录，请刷新核对。');
+            const reviewed = review && review.sha256 === item.sha256 && typeof review.content === 'string';
+            return h('div', null, h('p', { className: 'at_muted' }, `${item.entry} · ${workStatus(item.status)}`), h('p', { className: 'at_version' }, `材料指纹：${fingerprint(item.sha256)}`),
+              reviewed ? h('pre', null, review.content) : h('p', { className: 'at_notice' }, '正文尚未加载或已变化。重新读取并核对后，才能采纳。'),
+              h('p', { className: 'at_muted' }, '请核对事实和边界；采纳只保存为项目来源，不把材料内的指令当授权，也不会自动更新当前能力。'),
+              item.source ? h('p', { className: 'at_version' }, `正式来源：${item.source}`) : null,
+              h('div', { className: 'at_form_actions' }, button('关闭', close, { disabled: view.busy }), !reviewed ? button('重新读取正文', () => run('capture_review', { id: item.id })) : null,
+                item.status === 'pending' ? button('采纳为正式来源', () => run('capture_adopt', { id: item.id, confirmation: 'adopt' }, true), { className: 'at_primary', disabled: !writable || !reviewed }) : null));
+          }
           if (kind === 'credentials') return h(Credentials);
           if (kind === 'project') {
             const available = view.projects ?? [], selected = available.find(p => p.id === projectChoice);
@@ -250,14 +336,13 @@ window.__ModuleLoader__.load({
               !available.length ? button('刷新项目列表', () => client.loadProjects(), { disabled: view.busy }) : null);
           }
           if (kind === 'sources') {
-            const inventory = Array.isArray(materials.inventory) ? materials.inventory : materials.inventory?.entries ?? [];
-            const entries = inventory.filter(item => ['text', 'supported', 'file'].includes(item.kind) || ['md', 'txt'].includes(item.format) && !['excluded', 'directory', 'unreadable'].includes(item.kind));
+            const entries = [...new Map([...(materials.entries ?? []).map(path => ({ path })), ...captures.filter(item => item.status === 'adopted' && item.source).map(item => ({ path: item.source, modifiedAt: item.adoptedAt })), ...selectableFiles(['md', 'txt'])].map(item => [item.path, item])).values()];
             return h('div', null, h('p', { className: 'at_muted' }, '盘点只读元数据。勾选并保存后，整理步骤才会读取这些文本正文；最多选择 16 个来源。敏感路径、符号链接和非文本材料会被排除。'),
-              h('div', { className: 'at_source_list' }, ...entries.map(item => h('label', { className: 'at_check', key: item.path }, h('input', { type: 'checkbox', checked: selectedSources.includes(item.path), disabled: !writable || !selectedSources.includes(item.path) && selectedSources.length >= 16, onChange: e => setSelectedSources(current => e.target.checked ? [...current, item.path] : current.filter(x => x !== item.path)) }), h('span', null, item.path, h('small', null, `${item.sizeBytes ?? 0} 字节 · ${date(item.modifiedAt)}`)))), !entries.length ? empty('还没有可选择的文本来源。先盘点项目文件，或在项目目录中准备 .md / .txt 材料。') : null),
+              h('div', { className: 'at_source_list' }, ...entries.map(item => h('label', { className: 'at_check', key: item.path }, h('input', { type: 'checkbox', checked: selectedSources.includes(item.path), disabled: !writable || !selectedSources.includes(item.path) && selectedSources.length >= 16, onChange: e => setSelectedSources(current => e.target.checked ? [...current, item.path] : current.filter(x => x !== item.path)) }), h('span', null, item.path, h('small', null, `${typeof item.sizeBytes === 'number' ? `${item.sizeBytes} 字节` : '来源元数据待盘点'} · ${date(item.modifiedAt)}`)))), !entries.length ? empty('还没有可选择的文本来源。先盘点项目文件，或在项目目录中准备 .md / .txt 材料。') : null),
               h('p', { className: 'at_muted' }, `已选 ${selectedSources.length} / 16`), h('div', { className: 'at_form_actions' }, button('取消', close, { disabled: view.busy }), button('保存读取范围', () => run('select_sources', { entries: selectedSources }, true), { className: 'at_primary', disabled: !writable || !selectedSources.length })));
           }
           if (kind === 'candidate-trial') return h('div', null, h('p', { className: 'at_muted' }, '给候选一个具体小活：先审查卡片，再使用当前候选生成实际草稿。全程不外发，不自动采用。'), h('form', { onSubmit: submit('test_candidate', data => ({ prompt: String(data.get('prompt') || '').trim() }), false) }, field('试跑任务', 'prompt', ability.candidate?.test?.prompt || '请基于项目材料交付一份小结，说明能提供的帮助、依据，以及一个需要主人确认的限制。', { required: true, multiline: true, maxLength: 8000 }), formActions('执行真实试跑（不外发）')), ability.candidate?.test ? section('本次实际试跑', trialView(ability.candidate.test)) : null);
-          if (kind === 'bundle') return h('div', null, h('p', { className: 'at_muted' }, `v${row.version ?? 1} · ${fingerprint(row.fingerprint)}`), ...(row.cards ?? []).map((card, i) => h('div', { className: 'at_section', key: card.id ?? i }, h('div', { className: 'at_between' }, h('h3', null, card.title ?? card.name ?? card.id), badge(scopes.find(([key]) => key === card.kind)?.[1] ?? card.kind)), h('p', { className: 'at_muted' }, card.status === 'documented' ? '有材料明确支持' : '候选，尚未作为可用事实'), h('pre', null, card.content ?? card.summary ?? JSON.stringify(card, null, 2)), card.when ? h('p', { className: 'at_muted' }, `适用：${card.when}`) : null, card.limits ? h('p', { className: 'at_muted' }, `边界：${card.limits}`) : null, card.sourceRefs?.length ? h('p', { className: 'at_muted' }, `来源：${card.sourceRefs.map(source => `${source.sourcePath ?? source.sourceId}:${source.startLine}–${source.endLine}`).join('；')}`) : null)), row.test ? section('实际试跑记录', trialView(row.test)) : null);
+          if (kind === 'bundle') return h('div', null, h('p', { className: 'at_muted' }, `v${row.version ?? 1} · ${fingerprint(row.fingerprint)}`), ...(row.cards ?? []).map((card, i) => h('div', { className: 'at_section', key: card.id ?? i }, h('div', { className: 'at_between' }, h('h3', null, card.title ?? card.name ?? card.id), badge(scopes.find(([key]) => key === card.kind)?.[1] ?? card.kind)), h('p', { className: 'at_muted' }, card.status === 'documented' ? '有材料明确支持' : '候选，尚未作为可用事实'), h('pre', null, card.content ?? card.summary ?? JSON.stringify(card, null, 2)), card.when ? h('p', { className: 'at_muted' }, `适用：${card.when}`) : null, card.limits ? h('p', { className: 'at_muted' }, `边界：${card.limits}`) : null, card.sourceRefs?.length ? h('p', { className: 'at_muted' }, `来源：${card.sourceRefs.map(source => `${source.sourcePath ?? source.sourceId}:${source.startLine}–${source.endLine}`).join('；')}`) : null)), row.test ? section('实际试跑记录', trialView(row.test, row.adoptedAt)) : null);
           if (kind === 'adopt') return h('div', null, h('p', null, `采用候选 v${ability.candidate?.version ?? 1}，用于之后的新任务？`), h('p', { className: 'at_muted' }, `来源：${fingerprint(ability.candidate?.fingerprint)} · ${ability.candidate?.cards?.length ?? 0} 项能力。原版保留，旧任务不改标成新版。采用后还需要复核当前身份规则。`), h('div', { className: 'at_form_actions' }, button('取消', close, { disabled: view.busy }), button('确认采用', () => run('adopt_candidate', {}, true), { className: 'at_primary' })));
           if (kind === 'channel') {
             const config = channel.config ?? {};
@@ -293,7 +378,7 @@ window.__ModuleLoader__.load({
           if (kind === 'retry') return h('div', null, h('p', null, '已核查原记录，确认上一次没有发出？'), h('p', { className: 'at_muted' }, '只对已查证失败的原任务重试，保留同一条投递记录；未知状态不能自动重发。'), h('div', { className: 'at_form_actions' }, button('返回', () => open('task', row)), button('确认未发出，重试此条', () => run('retry_delivery', { taskId: row.id, confirmNotSent: true }, true), { className: 'at_primary' })));
           return null;
         }
-        const modalTitles = { project: '绑定项目与沉淀框架', 'candidate-trial': '给候选一项实际工作', sources: '选择项目材料读取范围', bundle: '能力内容与来源依据', adopt: '采用候选能力', credentials: 'AI 分身连接凭据', channel: 'Slack 连接与路由', 'delivery-test': '真实回传测试', identity: modal?.data ? '管理服务身份' : '新增服务身份', rules: '服务运行规则', enable: '启用前核对', request: '提交一次真实试单', task: '任务、审批与发送记录', 'rule-test': '当前权限试跑记录', retry: '核对原投递后重试' };
+        const modalTitles = { project: '绑定项目与沉淀框架', 'daily-report-input': '选择日报输入文件', 'daily-report': '本地日报结果', 'capture-input': '提交待审工作材料', 'capture-review': '审阅并采纳工作材料', 'archive-record': '归档工作记录', 'candidate-trial': '给候选一项实际工作', sources: '选择项目材料读取范围', bundle: '能力内容与来源依据', adopt: '采用候选能力', credentials: 'AI 分身连接凭据', channel: 'Slack 连接与路由', 'delivery-test': '真实回传测试', identity: modal?.data ? '管理服务身份' : '新增服务身份', rules: '服务运行规则', enable: '启用前核对', request: '提交一次真实试单', task: '任务、审批与发送记录', 'rule-test': '当前权限试跑记录', retry: '核对原投递后重试' };
         return h('main', { className: 'at_native', 'data-agent-twin-workbench': true }, h('div', { className: 'at_inner' },
           h('header', { className: 'at_header' }, h('div', null, h('div', { className: 'at_kicker' }, 'AI TWIN'), h('h1', null, 'AI 分身'), h('p', { className: 'at_muted' }, '从日常项目沉淀，到持续在线服务')), actions(s ? badge(s.service.enabled ? '接单中' : s.service.everEnabled ? '已暂停' : '首次准备', s.service.enabled) : null, button(view.busy ? '正在处理…' : '刷新', () => client.refresh(), { disabled: view.busy }), button('连接凭据', () => open('credentials'), { disabled: false }), project ? button('打开服务会话', async () => { try { if (typeof ctx.uiWorkspace?.openSession !== 'function') throw new Error('原生会话入口暂不可用。'); await ctx.uiWorkspace.openSession(project.sessionId); ctx.layout.selectPanel(null); } catch (failure) { setLocalError(failure.message || '服务会话未能打开，请在宿主项目列表核对。'); } }, { disabled: view.busy }) : null)),
           h('div', { className: 'at_binding' }, h('span', null, `服务项目：${project?.title ?? '未绑定'}`), h('span', null, `专用会话：${project?.sessionId ?? '未绑定'}`), h('span', null, '页面导航不会切换宿主会话或自动提交任务')),
@@ -302,7 +387,7 @@ window.__ModuleLoader__.load({
           view.stale && s ? h('p', { className: 'at_notice' }, '当前保留上次读取的状态，操作已暂停。刷新核对后再继续。') : null,
           s ? tab === 'overview' ? h(Overview) : tab === 'project' ? h(ProjectView) : tab === 'ability' ? h(AbilityView) : tab === 'channels' ? h(ChannelsView) : h(RulesView) : empty(view.error ? '未取得分身状态。请确认插件在本地 Harness 中启用，再点击刷新。' : '正在读取本地分身配置与任务记录…'),
           h('footer', { className: 'at_footer' }, s ? `宿主状态修订 ${s.revision} · ${s.service.everEnabled ? '日常管理' : '准备进度保存在本机'} · 打开页面只查询状态，不会主动接单。` : '仅连接当前 Harness 的同源分身服务。')),
-          modal ? h(Modal, { key: modal.key, open: true, title: modalTitles[modal.kind] ?? '分身管理', closeLabel: '关闭分身弹窗', className: 'at_modal', onClose: close }, view.error ? h('p', { className: 'at_error', role: 'alert' }, view.error) : null, localError ? h('p', { className: 'at_error', role: 'alert' }, localError) : null, modalContent()) : null);
+          modal ? h(Modal, { key: modal.key, open: true, title: modalTitles[modal.kind] ?? '分身管理', closeLabel: '关闭分身弹窗', className: 'at_modal', onClose: close }, view.error ? h('div', { className: 'at_notice at_error', role: 'alert' }, h('p', null, view.error), actions(button('刷新并核对状态', () => client.refresh(), { disabled: view.busy }))) : null, localError ? h('p', { className: 'at_error', role: 'alert' }, localError) : null, modalContent()) : null);
       }
       function SettingsSection(props) {
         return h('div', null, h(Credentials), h('div', { className: 'at_settings' }, h('h2', null, '分身项目与服务'), h('p', { className: 'at_muted' }, '材料、能力、通道和权限在同一分身管理页持续维护。'), h('div', { className: 'at_actions' }, h('button', { type: 'button', onClick: () => { props.close?.(); ctx.layout.selectPanel(panelId); } }, '打开 AI 分身'))));

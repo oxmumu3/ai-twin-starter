@@ -2,7 +2,7 @@
 
 先读 README 与全部 GitHub Releases（包含预发布），选择已经公开、与当前宿主兼容的版本，核对对应包及 `SHA256SUMS`。不要把源码分支或本地打包等同公开下载，不要只查 `/releases/latest`。
 
-**0.4 原生工作台**：DeepSeek Harness Web 0.2.1-rc.2 使用 [原生运行手册](docs/native.md)，由宿主真实模型完成整理与蒸馏；需要本人自己的 Slack 授权和明确启用。Desktop 0.2.1-rc.2 的集成尚未验收，其他宿主版本需重新验证。首次搭建与日常管理共享四个常驻模块。
+**0.4 原生工作台**：DeepSeek Harness Web / Desktop 0.2.1-rc.2 使用 [原生运行手册](docs/native.md)，由宿主真实模型完成整理与蒸馏；需要本人自己的 Slack 授权和明确启用。Desktop 已验证安装、整理蒸馏及本地日报与回流；完整验收边界见 [发布说明](docs/release-0.4.md)，其他宿主版本需重新验证。首次搭建与日常管理共享四个常驻模块。
 
 **以下为兼容 0.3 的通用 CLI / `agent_twin` 路径**：由当前 Agent 组织材料与卡片，`channel-tick` 始终只读 dry-run；它的 `ready:false` 不代表原生工作台已配置或已启用。两条路径分别验收。
 
@@ -107,7 +107,7 @@ node bin/agent-twin.mjs channel-tick --cwd /absolute/path/to/project
 
 ## 本地有界工作流与材料回流
 
-以下 CLI 由本机当前 Agent 在获准且已 `init` 的项目中显式执行，未接入原生实时接单服务，不授予来信发送人调用本机工具的权限。
+0.4.0-preview.2 起，主人可在原生“分身能力”运行日报，在“项目沉淀”提交、审阅并采纳回流材料；输入格式与下列 CLI 相同。以下 CLI 由本机当前 Agent 在获准且已 `init` 的项目中显式执行。这些本地动作不授予来信发送人调用本机工具的权限。
 
 ```sh
 node bin/agent-twin.mjs workflow-daily-report --cwd ./my-project --entry reports/daily.csv

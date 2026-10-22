@@ -16,7 +16,7 @@ function parseCsv(content){
 }
 const money=n=>`${n<0n?'-':''}${(n<0n?-n:n)/100n}.${String((n<0n?-n:n)%100n).padStart(2,'0')}`;
 const cents=value=>{if(!/^\d{1,12}(?:\.\d{1,2})?$/.test(value))return null;const [whole,frac='']=value.split('.');return BigInt(whole)*100n+BigInt(frac.padEnd(2,'0'));};
-export async function runDailyReport(cwd,entry){
+export async function prepareDailyReport(cwd,entry){
  explicitPath(entry);if(extname(entry).toLowerCase()!=='.csv')throw new Error('Select an explicit CSV input');
  const root=await projectRoot(cwd),content=await readBounded(join(root,entry),262144);assertNoCredentials(content,'CSV input');
  const rows=parseCsv(content.replace(/^\uFEFF/,''));if(JSON.stringify(rows.shift())!==JSON.stringify(['date','orders','revenue','cost']))throw new Error('CSV header must be exactly date,orders,revenue,cost; other fields are refused');
@@ -36,6 +36,18 @@ export async function runDailyReport(cwd,entry){
  const lines=[`# Local daily business report`,'','Only accepted rows are included. Currency/unit is inherited from the input and must be consistent. Margin is revenue minus cost. Duplicate rows are additive; this workflow does not infer unique orders.','',`Accepted rows: ${acceptedRows}; rejected rows: ${warnings.length}.`,'','| Date | Orders | Revenue | Cost | Margin |','| --- | ---: | ---: | ---: | ---: |'];
  for(const [date,d] of [...days.entries()].sort(([a],[b])=>a.localeCompare(b)))lines.push(`| ${date} | ${d.orders} | ${money(d.revenue)} | ${money(d.cost)} | ${money(d.revenue-d.cost)} |`);
  lines.push(`| Total | ${totals.orders} | ${totals.revenue} | ${totals.cost} | ${totals.margin} |`,'','## Validation warnings','',...(warnings.length?warnings.map(w=>`- Row ${w.row}: ${w.code}; excluded from totals.`):['None.']),'');
- await privateDirectory(join(root,'twin-project'));await privateDirectory(join(root,'twin-project','outputs'));const runId=randomUUID(),output=`twin-project/outputs/daily-report-${runId}.md`;await exclusiveWrite(join(root,output),lines.join('\n'));
- return {workflow:'daily-report',runId,output,inputSha256:createHash('sha256').update(content).digest('hex'),acceptedRows,rejectedRows:warnings.length,warnings,totals,mode:'local-cli',externalActions:false};
+ return {workflow:'daily-report',inputSha256:createHash('sha256').update(content).digest('hex'),acceptedRows,rejectedRows:warnings.length,warnings,totals,markdown:lines.join('\n')};
+}
+export async function runDailyReport(cwd,entry,{runId:providedId,expectedInputSha256}={}){
+ const runId=providedId??randomUUID();
+ if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(runId))throw new Error('Invalid report run ID');
+ const {markdown,...report}=await prepareDailyReport(cwd,entry);
+ if(expectedInputSha256!==undefined&&report.inputSha256!==expectedInputSha256)throw Object.assign(new Error('Report input changed after owner submission'),{code:'workbench_input_changed'});
+ const root=await projectRoot(cwd);await privateDirectory(join(root,'twin-project'));await privateDirectory(join(root,'twin-project','outputs'));
+ const output=`twin-project/outputs/daily-report-${runId}.md`;
+ try{await exclusiveWrite(join(root,output),markdown);}catch(error){
+  if(error.code!=='EEXIST'||!providedId)throw error;
+  if(await readBounded(join(root,output),262144)!==markdown)throw Object.assign(new Error('Existing report does not match the submitted operation'),{code:'workbench_output_changed'});
+ }
+ return {...report,runId,output,mode:providedId?'native-owner':'local-cli',externalActions:false};
 }

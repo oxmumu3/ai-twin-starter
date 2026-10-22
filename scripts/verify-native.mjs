@@ -3,11 +3,29 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, mkdtemp, rm, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const privateScanFile = process.env.AGENT_TWIN_PRIVATE_SCAN_FILE;
+let privateScanPatterns = [];
+if (privateScanFile !== undefined) {
+  assert.ok(typeof privateScanFile === 'string' && isAbsolute(privateScanFile) && !privateScanFile.includes('\0'), 'AGENT_TWIN_PRIVATE_SCAN_FILE must be an absolute path');
+  let values;
+  try {
+    const stat = await lstat(privateScanFile);
+    assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 65536);
+    const bytes = await readFile(privateScanFile);
+    assert.ok(bytes.length <= 65536);
+    values = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    throw new Error('Private scan configuration must be a readable, bounded, regular UTF-8 JSON file');
+  }
+  assert.ok(Array.isArray(values) && values.length > 0 && values.length <= 128 && values.every(value => typeof value === 'string' && value.trim().length > 0 && value.length <= 4096 && !value.includes('\0')), 'Private scan configuration must be a non-empty array of up to 128 bounded regular-expression strings');
+  try { privateScanPatterns = values.map(value => new RegExp(value, 'i')); }
+  catch { throw new Error('Private scan configuration contains an invalid regular expression'); }
+}
 const destination = join(root, 'dist');
 await mkdir(destination, { recursive: true });
 const packed = spawnSync('npm', ['pack', '--json', '--pack-destination', destination], { cwd: root, encoding: 'utf8' });
@@ -22,7 +40,7 @@ for (const path of paths) {
   const text = await readFile(join(root, path), 'utf8');
   assert.ok(!/\/Users\/|\/home\/[^/]+\//.test(text), `Private machine path: ${path}`);
   assert.ok(!/gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}/.test(text), `Credential-shaped value: ${path}`);
-  assert.ok(!/example-company|miclip\.mx|ExampleWorkspace|Example Brand/i.test(text), `Private business marker: ${path}`);
+  assert.ok(!privateScanPatterns.some(pattern => pattern.test(text)), `Local private marker: ${path}`);
 }
 new vm.Script(await readFile(join(root, 'src/client.js'), 'utf8'));
 const tarball = await readFile(join(destination, manifest.filename));
@@ -40,4 +58,4 @@ try {
 }
 const sha256 = createHash('sha256').update(tarball).digest('hex');
 await writeFile(join(destination, 'SHA256SUMS'), `${sha256}  ${manifest.filename}\n`);
-console.log(JSON.stringify({ filename: manifest.filename, bytes: tarball.length, files: paths.length, sha256, privateDataChecks: 'passed', tarballMatchesSource: true, clientSyntax: 'passed' }, null, 2));
+console.log(JSON.stringify({ filename: manifest.filename, bytes: tarball.length, files: paths.length, sha256, privateDataChecks: 'passed', privateMarkerChecks: privateScanFile === undefined ? 'not_configured' : 'passed', tarballMatchesSource: true, clientSyntax: 'passed' }, null, 2));

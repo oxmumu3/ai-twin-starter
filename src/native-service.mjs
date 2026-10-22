@@ -2,6 +2,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { createTwinStore } from "./native-store.mjs";
+import { createNativeWorkbench } from "./native-workbench.mjs";
 import { initWorkspace } from "./workspace.mjs";
 import { ensureProjectStructure } from "./project-structure.mjs";
 import {
@@ -26,6 +27,11 @@ const object = (value) =>
 const KINDS = ["knowledge", "judgment", "workflow", "tool"];
 const MAX_TASKS = 1000;
 const ACTIONS = new Set([
+  "run_daily_report",
+  "capture_submit",
+  "capture_review",
+  "capture_adopt",
+  "archive_workbench",
   "configure_project",
   "inventory",
   "select_sources",
@@ -107,6 +113,7 @@ function initial() {
     tasks: [],
     outbox: [],
     events: [],
+    workbench: { reports: [], captures: [] },
   };
 }
 const sourceMeta = (s) => ({
@@ -183,6 +190,7 @@ export function createTwinService({
   now = () => new Date(),
 } = {}) {
   const store = createTwinStore({ stateDir, initialState: initial });
+  const workbench = createNativeWorkbench();
   const at = () => {
     const date = now();
     return new Date(date).toISOString();
@@ -563,6 +571,7 @@ export function createTwinService({
   function view(s, live) {
     const result = clone(s),
       valid = validCards(s, live);
+    result.workbench = workbench.view(s);
     const materialsReady =
       !!s.project?.goal &&
       !!s.project?.mechanism &&
@@ -580,7 +589,13 @@ export function createTwinService({
     if (result.ability.adopted) {
       result.ability.adopted.validCardIds = valid.map((card) => card.id);
       result.ability.adopted.staleCardIds = result.ability.adopted.cards
-        .filter((card) => !valid.some((v) => v.id === card.id))
+        .filter(
+          (card) =>
+            card.status === "documented" && !valid.some((v) => v.id === card.id),
+        )
+        .map((card) => card.id);
+      result.ability.adopted.candidateCardIds = result.ability.adopted.cards
+        .filter((card) => card.status === "candidate")
         .map((card) => card.id);
     }
     result.ability.status = !s.ability.adopted
@@ -1303,6 +1318,13 @@ export function createTwinService({
       let live = await liveSources(s);
       enforce(s, live);
       switch (action) {
+        case "run_daily_report":
+        case "capture_submit":
+        case "capture_review":
+        case "capture_adopt":
+        case "archive_workbench":
+          await workbench.command(s, action, payload, tx, at);
+          break;
         case "configure_project": {
           onlyKeys(
             payload,

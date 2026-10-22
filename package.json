@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-twin",
-  "version": "0.4.0-preview.1",
+  "version": "0.4.0-preview.2",
   "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
   "type": "module",
   "license": "MIT",

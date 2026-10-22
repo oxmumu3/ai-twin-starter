@@ -12,7 +12,10 @@ const response=(body,status=200)=>Response.json(body,{status,headers:JSON_HEADER
 const SECRET_KEY=/(?:token|password|passwd|secret|authorization|api[-_]?key|credential)/i;
 const ERROR_TEXT=Object.freeze({
   revision_conflict:'配置已变化，请刷新后再操作。',invalid_input:'参数不完整或不符合范围，请检查当前表单。',
+  request_conflict:'这次操作编号已用于另一份材料，请刷新后重新发起。',workbench_full:'本地工作记录已满，现有记录和文件已保留，请先整理后继续。',capture_missing:'这条回流材料不属于当前项目，请刷新后核对。',capture_unavailable:'这条材料尚未完成提交，请先核对原操作。',workbench_input_changed:'原始材料已变化，请核对后创建新的操作。',workbench_output_changed:'已有产物与本次操作不一致，文件已保留，请核对后继续。',workbench_failed:'本次操作未确认完成，现有文件已保留，请核对材料与输出。',
+  archive_invalid:'仅已完成的日报或已采纳的材料可归档，请先核对当前状态。',archive_missing:'没有找到当前项目对应的归档，请刷新后核对。',workbench_archive_failed:'归档未确认完成，原记录与文件已保留，请核对后继续。',
   executor_missing:'尚未连接模型，请先配置 DSH 的默认模型。',model_unavailable:'当前 DSH 模型不可用，请检查默认模型和授权。',model_timeout:'模型处理超时，本次操作未记为成功。',model_request_failed:'模型请求未完成，请检查 DSH 模型连接后重试。',model_invalid_output:'模型返回未通过结构或完整性检查，请核对材料后重新生成。',model_invalid_json:'模型未返回可验证的结果，请重新生成。',
+  model_incomplete:'模型流未按预期完整结束，本次结果未采用；请核对宿主连接后重试。',model_token_limit:'模型达到本次 Token 上限，结果未采用；请缩小材料或任务范围后重试。',model_provider_failed:'模型服务返回执行失败，本次结果未采用；请检查 DSH 模型连接与可用额度。',model_aborted:'模型执行已中止，本次结果未采用。',model_output_limit:'模型结果超过本次长度限制，请缩小材料或试跑范围。',model_tool_refused:'模型尝试了未授权的工具调用，本次结果未采用。',executor_timeout:'模型执行超过本次时限，未记为成功。',executor_failed:'模型执行未确认完成，请核对宿主连接后重试。',
   project_unbound:'请先选择项目并绑定服务会话。',project_incomplete:'请先补全项目目标和核心机制。',project_not_authorized:'请选择当前 DSH 已有的项目。',session_not_authorized:'该会话不属于所选项目，请重新选择。',session_create_unavailable:'当前宿主无法新建服务会话，请先检查会话服务。',binding_in_use:'尚有未解决任务，请先暂停服务并处理后再更换项目。',
   materials_stale:'项目材料已变化，请重新整理材料。',materials_invalid:'材料结果未通过来源检查，请重新整理。',candidate_missing:'请先生成分身能力候选。',candidate_stale:'候选来源已变化，请重新生成。',candidate_untested:'请先完成当前候选的检查。',ability_required:'请先采用一版通过检查的分身能力。',
   channel_unconfigured:'请先配置服务通道。',transport_missing:'通道凭据尚不可用，请打开原生插件设置。',probe_required:'请先重新检查通道身份和访问范围。',channel_identity_changed:'通道账号已变化，服务已暂停，请重新核验。',destination_unverified:'目的地尚未核验，请先完成通道检查。',destination_mismatch:'目的地与当前任务或主人通道不一致。',rules_incomplete:'请先补全身份规则及通道检查。',not_ready:'上线条件尚未完成，请先处理首页列出的缺口。',service_paused:'服务当前暂停，请完成检查后明确启用。',
@@ -154,7 +157,17 @@ function modelOutput(kind,text,input){
   return data;
 }
 
-/** Use the host's configured provider directly. No extra Agent/Session or tools. */
+// The SDK binds model metadata and controls to one prepared request. Prefer a
+// supported effort appropriate for bounded JSON work without editing the
+// user's default model. Keep the selected controls when no preferred effort is advertised.
+function boundedModelControls(kind,controls,modelInfo){
+  const efforts=Array.isArray(modelInfo?.reasoning?.efforts)?modelInfo.reasoning.efforts:[];
+  const preferred=kind==='route'?['off','low']:['low'];
+  const effort=preferred.find(id=>efforts.some(item=>item?.id===id));
+  return {...controls,...effort===undefined?{}:{reasoningEffort:effort}};
+}
+
+/** Use the host's provider/model with per-call controls. No extra Session or tools. */
 export function createNativeExecutor(ctx,{timeoutMs=90000,maxOutputChars=160000}={}){
   if(!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw unavailable('model_invalid_timeout');
   let closed=false;const active=new Set();
@@ -171,7 +184,10 @@ export function createNativeExecutor(ctx,{timeoutMs=90000,maxOutputChars=160000}
       const operation=AbortSignal.any([controller.signal,...(signal?[signal]:[])]),timer=setTimeout(()=>controller.abort(unavailable('model_timeout')),timeoutMs);
       let iterator,ended=false;
       try{
-        const prepared=await cancellable(Promise.resolve().then(()=>llm.prepareCall({...selection,maxTokens:kind==='route'?300:kind==='task'?6000:12000},operation)),operation);
+        const prepared=await cancellable(Promise.resolve().then(()=>llm.prepareCall(
+          {...selection,maxTokens:kind==='route'?2048:kind==='task'?6000:12000},
+          operation,(controls,modelInfo)=>boundedModelControls(kind,controls,modelInfo),
+        )),operation);
         if(!object(prepared?.config)||typeof prepared?.stream!=='function')throw unavailable('model_unavailable');
         const stream=prepared.stream({...prepared.config,system:PROMPTS[kind],messages:[{role:'user',content:[{type:'text',text:data}]}],tools:[],signal:operation});
         iterator=stream?.[Symbol.asyncIterator]?.();if(typeof iterator?.next!=='function')throw unavailable('model_incomplete');
@@ -190,7 +206,15 @@ export function createNativeExecutor(ctx,{timeoutMs=90000,maxOutputChars=160000}
           if(!['block-start','text-delta','reasoning-delta','block-end','usage','finish'].includes(chunk.type))throw unavailable('model_incomplete');
           if(chunk.type==='text-delta')block(chunk.index,chunk.text,true);
           else if(chunk.type==='block-end'&&chunk.block?.type==='text')block(chunk.index,chunk.block.text,false);
-          else if(chunk.type==='finish'){finish=chunk.reason?.kind;if(finish!=='stop')throw unavailable('model_incomplete');}
+          else if(chunk.type==='finish'){
+            finish=chunk.reason?.kind;
+            // Only fixed protocol classes leave the provider boundary. Its raw
+            // failure object can contain request details and must not reach UI.
+            if(finish==='max-tokens')throw unavailable('model_token_limit');
+            if(finish==='error')throw unavailable('model_provider_failed');
+            if(finish==='aborted')throw unavailable('model_aborted');
+            if(finish!=='stop')throw unavailable('model_incomplete');
+          }
         }
         if(finish!=='stop')throw unavailable('model_incomplete');
         const text=[...blocks].sort(([a],[b])=>a-b).map(([,value])=>value).join('');
