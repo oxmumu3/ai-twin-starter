@@ -16,8 +16,8 @@
         "zh": "AI分身搭建"
       },
       "description": {
-        "en": "Organize scattered private project materials with evidence and gaps, distill source-backed cards, probe Slack read access and dry-run permission routing.",
-        "zh": "从零散项目组织私有材料与缺口，保留原始出处蒸馏知识，核验Slack只读准入及权限分流。"
+        "en": "Native project materials, evidence-backed capabilities, authorized Slack service, identity rules and durable receipts. Includes bounded local workflows.",
+        "zh": "原生四模块持续管理、来源能力、授权Slack服务、身份规则与持久回执，附本地有界工作流。"
       },
       "author": "奥克斯木木山",
       "homepage": "https://github.com/oxmumu3/ai-twin-starter#readme",
@@ -25,6 +25,18 @@
         "url": "https://github.com/oxmumu3/ai-twin-starter"
       },
       "versions": [
+        {
+          "version": "0.4.0-preview.1",
+          "publishTimestamp": 1792698768,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/oxmumu3/ai-twin-starter",
+            "commit": "cf9d18c7eb1f539e8aaf69bb21928f4487ac0463"
+          },
+          "engines": {
+            "dsh": "0.2.1-rc.2"
+          }
+        },
         {
           "version": "0.3.0",
           "publishTimestamp": 1792393555,
