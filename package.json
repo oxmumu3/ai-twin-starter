@@ -1,17 +1,17 @@
 {
   "name": "dsh-agent-twin",
-  "version": "0.4.0-preview.2",
+  "version": "0.4.0-preview.3",
   "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
   "type": "module",
   "license": "MIT",
-  "author": "奥克斯木木山",
+  "author": "牛村木木山",
   "repository": {
     "type": "git",
     "url": "https://github.com/oxmumu3/ai-twin-starter.git"
   },
   "engines": {
     "node": ">=22.13",
-    "dsh": "0.2.1-rc.2"
+    "dsh": "0.2.1-rc.2 || 0.2.1-rc.3"
   },
   "exports": {
     ".": "./index.js",
@@ -39,7 +39,8 @@
     "docs/architecture.md",
     "docs/distill.md",
     "docs/native.md",
-    "docs/release-0.4.md"
+    "docs/release-0.4.md",
+    "docs/rc3-compatibility.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
@@ -64,13 +65,13 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3",
     "@deepseek-ai/schemastery": "3.18.5",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3",
     "@deepseek-ai/schemastery": "3.18.5",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3"
   }
 }

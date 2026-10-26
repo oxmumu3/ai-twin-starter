@@ -1,6 +1,6 @@
 # 在 DeepSeek Harness 中安装
 
-0.4 预发布提供原生“AI 分身”工作台：项目沉淀、分身能力、通道连接、身份与规则四个模块，以及首次搭建和日常管理。当前宿主为 **官方 Web / Desktop 0.2.1-rc.2，Node.js 22.13+**。Desktop 已验证安装、启用、真实模型整理蒸馏及本地工作流，完整验收边界见发布说明；其他版本需重新验证，不使用版本豁免强行安装。
+0.4 预发布提供原生“AI 分身”工作台：项目沉淀、分身能力、通道连接、身份与规则四个模块，以及首次搭建和日常管理。当前宿主为 **官方 Web / Desktop 0.2.1-rc.2 / 0.2.1-rc.3，Node.js 22.13+**。Desktop 已验证安装、启用、真实模型整理蒸馏及本地工作流，完整验收边界见发布说明；其他版本需重新验证，不使用版本豁免强行安装。
 
 原生版运行步骤见 [native.md](native.md)，能力、证据与未测项见 [release-0.4.md](release-0.4.md)。安装、启用组件、项目配置、通道验收、服务在线分别记录。
 
@@ -142,7 +142,7 @@ npm pack --ignore-scripts
 
 ```sh
 trial_home="$(mktemp -d)"
-DSH_HOME="$trial_home" npx --yes @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add ./dsh-agent-twin-0.4.0-preview.2.tgz
+DSH_HOME="$trial_home" npx --yes @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add ./dsh-agent-twin-0.4.0-preview.3.tgz
 ```
 
 隔离 CLI 安装只证明包管理路径；工具/SDK测试只证明适配逻辑。二者均不证明真实 Desktop 中已加载、模型已调用、渠道已收到或工作流已持续运行。真实验收须分别登记，不通过操作微信客户端来核对收件。
