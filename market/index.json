@@ -19,12 +19,24 @@
         "en": "Native project materials, evidence-backed capabilities, authorized Slack service, identity rules and durable receipts. Includes bounded local workflows.",
         "zh": "原生四模块持续管理、来源能力、授权Slack服务、身份规则与持久回执，附本地有界工作流。"
       },
-      "author": "奥克斯木木山",
+      "author": "牛村木木山",
       "homepage": "https://github.com/oxmumu3/ai-twin-starter#readme",
       "repository": {
         "url": "https://github.com/oxmumu3/ai-twin-starter"
       },
       "versions": [
+        {
+          "version": "0.4.0-preview.3",
+          "publishTimestamp": 1792974790,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/oxmumu3/ai-twin-starter",
+            "commit": "bf33c43852d53428f62eb21f046fe380d1cd5b67"
+          },
+          "engines": {
+            "dsh": "0.2.1-rc.2 || 0.2.1-rc.3"
+          }
+        },
         {
           "version": "0.4.0-preview.2",
           "publishTimestamp": 1792702954,
