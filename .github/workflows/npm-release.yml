@@ -1,0 +1,171 @@
+# npm Trusted Publisher must bind this exact repository and npm-release.yml.
+# Default runs only validate; OIDC is available only in the explicit publish job.
+name: Validate or publish npm release
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the validated tarball to npm (requires configured Trusted Publisher).
+        type: boolean
+        required: true
+        default: false
+permissions: {}
+concurrency:
+  group: npm-release-ai-twin-starter
+  cancel-in-progress: false
+env:
+  EXPECTED_REPOSITORY: oxmumu3/ai-twin-starter
+  EXPECTED_PACKAGE: "@oxmumu3/dsh-agent-twin"
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  NPM_CONFIG_IGNORE_SCRIPTS: "true"
+defaults:
+  run:
+    shell: bash
+jobs:
+  validate:
+    name: Validate source and pack
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'oxmumu3/ai-twin-starter' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.pack.outputs.sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - &a1
+        name: Use Node 22.22.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22.22.0
+          package-manager-cache: false
+      - &a2
+        name: Use npm 11.15.0
+        run: |-
+          npm install --global npm@11.15.0 --ignore-scripts --no-audit --no-fund
+          node --version
+          npm --version
+      - name: Install locked dependencies without hooks
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check source and build the actual package
+        run: node --test test/native-package.test.mjs test/native-client.test.mjs test/native-plugin.test.mjs
+      - name: Pack and validate the exact release artifact
+        id: pack
+        env:
+          PACKAGE_PATH: .
+        run: |-
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-artifact"
+          npm pack "$PACKAGE_PATH" --json --ignore-scripts --pack-destination "$RUNNER_TEMP/release-artifact" > "$RUNNER_TEMP/npm-pack.json"
+          python3 - <<'PY'
+          import hashlib,json,os,re,tarfile
+          from pathlib import Path,PurePosixPath
+          expected=os.environ['EXPECTED_PACKAGE']
+          rows=json.loads((Path(os.environ['RUNNER_TEMP'])/'npm-pack.json').read_text())
+          assert len(rows)==1 and rows[0]['name']==expected,'Unexpected packed identity'
+          row=rows[0]; filename=row['filename']
+          assert Path(filename).name==filename and filename.endswith('.tgz'),'Unsafe tarball filename'
+          artifact=Path(os.environ['RUNNER_TEMP'])/'release-artifact'/filename
+          assert artifact.is_file() and not artifact.is_symlink() and artifact.stat().st_size<=32*1024*1024
+          with tarfile.open(artifact,'r:gz') as tar:
+           seen=set(); expanded=0
+           for member in tar.getmembers():
+            path=PurePosixPath(member.name)
+            assert path.parts and path.parts[0]=='package' and not path.is_absolute() and '..' not in path.parts,'Unsafe archive path'
+            assert member.name not in seen and (member.isfile() or member.isdir()),'Link or duplicate archive member'
+            seen.add(member.name); expanded+=member.size
+            assert expanded<=128*1024*1024,'Oversized expanded archive'
+           metadata=json.load(tar.extractfile('package/package.json'))
+           assert metadata['name']==expected and metadata['version']==row['version'],'Packed metadata mismatch'
+           assert re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?',metadata['version']),'Expected exact SemVer'
+           assert metadata['publishConfig']=={'access':'public','tag':'latest'},'Unexpected publication configuration'
+           repository=metadata['repository']
+           assert repository['url']=='git+https://github.com/'+os.environ['EXPECTED_REPOSITORY']+'.git','Repository mismatch'
+           if os.environ['PACKAGE_PATH']=='./management-plugin':
+            assert repository.get('directory')=='management-plugin','Wrong management subpackage'
+           patch=metadata['dsh']['bundle']['patch'].removeprefix('./')
+           patch_text=tar.extractfile('package/'+patch).read().decode()
+           assert ('name: "'+expected+'"') in patch_text or ("name: '"+expected+"'") in patch_text,'Missing quoted scoped Cordis reference'
+           for target in metadata['exports'].values():
+            assert isinstance(target,str) and 'package/'+target.removeprefix('./') in seen,'Missing package export'
+           assert not set(metadata.get('scripts',{})) & {'preinstall','install','postinstall','prepare','prepack','postpack','prepublish','prepublishOnly','publish','postpublish'},'Unexpected package lifecycle hook'
+          digest=hashlib.sha256(artifact.read_bytes()).hexdigest()
+          manifest={'name':expected,'version':metadata['version'],'filename':filename,'sha256':digest,'repository':os.environ['EXPECTED_REPOSITORY'],'source_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT']}
+          (artifact.parent/'release-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('sha256='+digest+'\n')
+          print(json.dumps(manifest))
+          PY
+      - name: Store this run’s immutable release artifact
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-release
+          path: ${{ runner.temp }}/release-artifact/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: false
+          include-hidden-files: false
+  publish:
+    name: Publish the validated artifact
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'oxmumu3/ai-twin-starter' && github.ref == 'refs/heads/main' && inputs.publish == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - *a1
+      - *a2
+      - name: Download only the validated artifact from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.validate.outputs.artifact_id }}
+          path: ${{ runner.temp }}/release-artifact/
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Verify bytes and hardcoded package identity without executing product code
+        id: verify
+        env:
+          VALIDATED_SHA256: ${{ needs.validate.outputs.sha256 }}
+        run: |-
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,tarfile
+          from pathlib import Path,PurePosixPath
+          root=Path(os.environ['RUNNER_TEMP'])/'release-artifact'
+          manifest=json.loads((root/'release-manifest.json').read_text())
+          assert manifest['name']==os.environ['EXPECTED_PACKAGE'],'Wrong publication package'
+          assert manifest['repository']==os.environ['EXPECTED_REPOSITORY'],'Wrong publication repository'
+          assert manifest['source_commit']==os.environ['GITHUB_SHA'],'Source commit mismatch'
+          assert manifest['run_id']==os.environ['GITHUB_RUN_ID'] and manifest['run_attempt']==os.environ['GITHUB_RUN_ATTEMPT'],'Artifact is from another run or attempt'
+          assert re.fullmatch('[a-f0-9]{64}',os.environ['VALIDATED_SHA256']) and manifest['sha256']==os.environ['VALIDATED_SHA256'],'Validation output mismatch'
+          filename=manifest['filename']; assert Path(filename).name==filename and filename.endswith('.tgz'),'Unsafe artifact path'
+          artifact=root/filename
+          assert artifact.is_file() and not artifact.is_symlink() and artifact.stat().st_size<=32*1024*1024
+          assert hashlib.sha256(artifact.read_bytes()).hexdigest()==manifest['sha256'],'Tarball digest mismatch'
+          with tarfile.open(artifact,'r:gz') as tar:
+           seen=set(); expanded=0
+           for member in tar.getmembers():
+            path=PurePosixPath(member.name)
+            assert path.parts and path.parts[0]=='package' and not path.is_absolute() and '..' not in path.parts
+            assert member.name not in seen and (member.isfile() or member.isdir()),'Link or duplicate archive member'
+            seen.add(member.name); expanded+=member.size
+            assert expanded<=128*1024*1024
+           metadata=json.load(tar.extractfile('package/package.json'))
+           assert metadata['name']==os.environ['EXPECTED_PACKAGE'] and metadata['version']==manifest['version'],'Tarball identity mismatch'
+           assert metadata['repository']['url']=='git+https://github.com/'+os.environ['EXPECTED_REPOSITORY']+'.git'
+           assert metadata['publishConfig']=={'access':'public','tag':'latest'}
+           if os.environ['EXPECTED_PACKAGE']=='@oxmumu3/dot-dsh-management':assert metadata['repository']['directory']=='management-plugin'
+           assert not set(metadata.get('scripts',{})) & {'preinstall','install','postinstall','prepare','prepack','postpack','prepublish','prepublishOnly','publish','postpublish'}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('tarball='+str(artifact)+'\n')
+          print('Verified publication artifact:',metadata['name'],metadata['version'],manifest['sha256'])
+          PY
+      - name: Publish with npm Trusted Publishing
+        env:
+          TARBALL: ${{ steps.verify.outputs.tarball }}
+        run: npm publish "$TARBALL" --ignore-scripts --access public --tag latest --registry https://registry.npmjs.org/
