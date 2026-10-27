@@ -2,7 +2,7 @@
 
 在 DeepSeek Harness 内搭建和持续管理一个有来源、有权限边界的 AI 分身。原生工作台提供“项目沉淀、分身能力、通道连接、身份与规则”四个常驻模块，首次搭建后可在日常管理中继续补材料、更新能力、处理审批和检查回执。
 
-原生版面向 **DeepSeek Harness Web / Desktop 0.2.1-rc.2、0.2.1-rc.3 / Node.js 22.13+**。Desktop 已验证安装启用、真实模型整理蒸馏、候选试跑与明确采用、日报和材料回流；真实 Slack 收发仍待验收，完整证据见 [0.4 发布说明](docs/release-0.4.md)。其他宿主版本需重新验证。模型使用宿主配置，Slack 需要你自己的应用授权。完整路径见 [原生运行手册](docs/native.md)。
+原生版面向 **DeepSeek Harness Web / Desktop 0.2.1-rc.2、0.2.1-rc.3 / Node.js 22.13+**。Desktop 已验证安装启用、真实模型整理蒸馏、候选试跑与明确采用、日报和材料回流；真实 Slack 收发仍待验收，完整证据见 [0.4 发布说明](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/release-0.4.md)。其他宿主版本需重新验证。模型使用宿主配置，Slack 需要你自己的应用授权。完整路径见 [原生运行手册](docs/native.md)。
 
 用已有工作 Agent，按四步搭分身：**准备分身材料 → 蒸馏分身 → 连接通道 → 设定权限**。
 
@@ -31,9 +31,9 @@ DeepSeek Harness：
 
 ## 从零散项目开始
 
-[零散项目示例](examples/messy-project/README.md)用独立编写的合成背景、笔记、旧报告和工具说明演示材料准备。待转换的 PDF 留作缺口，被排除的配置不作为知识来源；不要求先有成套规则文件。后续过程是盘点 → 选择与读取来源 → Agent 整理材料/缺口 → 校验落包 → 从原始来源蒸馏。
+[零散项目示例](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/examples/messy-project/README.md)用独立编写的合成背景、笔记、旧报告和工具说明演示材料准备。待转换的 PDF 留作缺口，被排除的配置不作为知识来源；不要求先有成套规则文件。后续过程是盘点 → 选择与读取来源 → Agent 整理材料/缺口 → 校验落包 → 从原始来源蒸馏。
 
-[工作方法示例](examples/synthetic-operations/README.md)保留既有的四类蒸馏演示。它们均不包含真实业务资料或作者私有知识包。
+[工作方法示例](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/examples/synthetic-operations/README.md)保留既有的四类蒸馏演示。它们均不包含真实业务资料或作者私有知识包。
 
 ## Agent 使用的命令
 
@@ -71,8 +71,8 @@ DSH 有官方提供的[自定义插件市场功能](https://deepseek-harness.git
 
 0.4 原生执行器只使用本次身份获准的来源卡片，完成问答、草稿和消息回传，不开放任意 Agent 工具调用。工具卡说明不等于已经接通或执行了工具。合成模型和隔离消息适配器的端到端验收及重启恢复已完成；Desktop 的实际安装和本地工作流另有实跑记录。真实 Slack 收发、真实同事体验及长期稳定性仍需验收。GitHub 预发布分发不代表官方市场收录或生产服务验收。
 
-MIT，作者：牛村木木山（`oxmumu3`）。[安装说明](docs/dsh-install.md)、[原生运行手册](docs/native.md)、[0.4 发布说明](docs/release-0.4.md)。旧 [验收记录](docs/verification.md)、[架构](docs/architecture.md)和 [通道说明](docs/channel.md)描述通用 0.3 路径；原生版以本次发布说明及运行手册为准。
+MIT，作者：牛村木木山（`oxmumu3`）。[安装说明](docs/dsh-install.md)、[原生运行手册](docs/native.md)、[0.4 发布说明](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/release-0.4.md)。旧 [验收记录](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/verification.md)、[架构](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/architecture.md)和 [通道说明](docs/channel.md)描述通用 0.3 路径；原生版以本次发布说明及运行手册为准。
 
 ## 官方 rc.3 兼容维护
 
-`0.4.0-preview.3` 保留已安装 0.4.0-preview.2 的全部运行代码，仅更新官方 Harness 0.2.1-rc.3 及其 SDK 兼容声明、版本和安装文案。不含正在开发的 0.5 新功能。现有能力、身份规则、材料及投递记录不迁移、不清除。详见[兼容验收](docs/rc3-compatibility.md)。
+`0.4.0-preview.3` 保留已安装 0.4.0-preview.2 的全部运行代码，仅更新官方 Harness 0.2.1-rc.3 及其 SDK 兼容声明、版本和安装文案。不含正在开发的 0.5 新功能。现有能力、身份规则、材料及投递记录不迁移、不清除。详见[兼容验收](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/rc3-compatibility.md)。

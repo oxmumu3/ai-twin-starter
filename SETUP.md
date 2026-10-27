@@ -2,7 +2,7 @@
 
 先读 README 与全部 GitHub Releases（包含预发布），选择已经公开、与当前宿主兼容的版本，核对对应包及 `SHA256SUMS`。不要把源码分支或本地打包等同公开下载，不要只查 `/releases/latest`。
 
-**0.4 原生工作台**：DeepSeek Harness Web / Desktop 0.2.1-rc.2 / 0.2.1-rc.3 使用 [原生运行手册](docs/native.md)，由宿主真实模型完成整理与蒸馏；需要本人自己的 Slack 授权和明确启用。Desktop 已验证安装、整理蒸馏及本地日报与回流；完整验收边界见 [发布说明](docs/release-0.4.md)，其他宿主版本需重新验证。首次搭建与日常管理共享四个常驻模块。
+**0.4 原生工作台**：DeepSeek Harness Web / Desktop 0.2.1-rc.2 / 0.2.1-rc.3 使用 [原生运行手册](docs/native.md)，由宿主真实模型完成整理与蒸馏；需要本人自己的 Slack 授权和明确启用。Desktop 已验证安装、整理蒸馏及本地日报与回流；完整验收边界见 [发布说明](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/release-0.4.md)，其他宿主版本需重新验证。首次搭建与日常管理共享四个常驻模块。
 
 **以下为兼容 0.3 的通用 CLI / `agent_twin` 路径**：由当前 Agent 组织材料与卡片，`channel-tick` 始终只读 dry-run；它的 `ready:false` 不代表原生工作台已配置或已启用。两条路径分别验收。
 

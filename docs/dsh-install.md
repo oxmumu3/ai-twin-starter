@@ -2,7 +2,7 @@
 
 0.4 预发布提供原生“AI 分身”工作台：项目沉淀、分身能力、通道连接、身份与规则四个模块，以及首次搭建和日常管理。当前宿主为 **官方 Web / Desktop 0.2.1-rc.2 / 0.2.1-rc.3，Node.js 22.13+**。Desktop 已验证安装、启用、真实模型整理蒸馏及本地工作流，完整验收边界见发布说明；其他版本需重新验证，不使用版本豁免强行安装。
 
-原生版运行步骤见 [native.md](native.md)，能力、证据与未测项见 [release-0.4.md](release-0.4.md)。安装、启用组件、项目配置、通道验收、服务在线分别记录。
+原生版运行步骤见 [native.md](native.md)，能力、证据与未测项见 [release-0.4.md](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/release-0.4.md)。安装、启用组件、项目配置、通道验收、服务在线分别记录。
 
 ## 给 Harness 的一句话
 

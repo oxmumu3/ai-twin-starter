@@ -1,5 +1,5 @@
 {
-  "name": "dsh-agent-twin",
+  "name": "@oxmumu3/dsh-agent-twin",
   "version": "0.4.0-preview.3",
   "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
   "type": "module",
@@ -7,7 +7,7 @@
   "author": "牛村木木山",
   "repository": {
     "type": "git",
-    "url": "https://github.com/oxmumu3/ai-twin-starter.git"
+    "url": "git+https://github.com/oxmumu3/ai-twin-starter.git"
   },
   "engines": {
     "node": ">=22.13",
@@ -22,25 +22,21 @@
     "agent-twin": "./bin/agent-twin.mjs"
   },
   "files": [
-    "bin/",
-    "src/",
-    "templates/",
-    "examples/",
     "index.js",
+    "src/",
+    "bin/",
+    "templates/",
+    "examples/slack-app-manifest.json",
     "cordis.patch.yml",
     "README.md",
     "SETUP.md",
     "LICENSE",
     "docs/materials.md",
     "docs/channel.md",
-    "docs/verification.md",
     "docs/privacy.md",
     "docs/dsh-install.md",
-    "docs/architecture.md",
     "docs/distill.md",
-    "docs/native.md",
-    "docs/release-0.4.md",
-    "docs/rc3-compatibility.md"
+    "docs/native.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
@@ -73,5 +69,13 @@
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3",
     "@deepseek-ai/schemastery": "3.18.5",
     "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "homepage": "https://github.com/oxmumu3/ai-twin-starter",
+  "bugs": {
+    "url": "https://github.com/oxmumu3/ai-twin-starter/issues"
   }
 }

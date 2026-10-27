@@ -1,6 +1,6 @@
 /* Native DSH client. Project data and execution state remain in the host service. */
 window.__ModuleLoader__.load({
-  id: 'dsh-agent-twin',
+  id: '@oxmumu3/dsh-agent-twin',
   factory: require => {
     const React = require('react');
     const { Modal, SettingsForm, SettingsSecretField } = require('@deepseek-ai/dsh-client-ui-primitives');
@@ -395,7 +395,7 @@ window.__ModuleLoader__.load({
       ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: panelId }, Workbench)));
       ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: panelId, label: 'AI 分身', order: 6 }, TwinIcon)));
       ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: panelId, label: 'AI 分身', order: 40 }, SettingsSection)));
-      ctx.effect(() => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({ name: 'plugins.row.config', key: 'dsh-agent-twin#agent-twin-starter' }, props => props.view === 'summary' ? '项目沉淀、分身能力、Slack 通道与服务权限' : h(Credentials))));
+      ctx.effect(() => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({ name: 'plugins.row.config', key: '@oxmumu3/dsh-agent-twin#agent-twin-starter' }, props => props.view === 'summary' ? '项目沉淀、分身能力、Slack 通道与服务权限' : h(Credentials))));
     }
     return { inject, apply, createTwinClient, validSnapshot };
   },
