@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
           package-manager-cache: false
       - name: Reject an unvalidated official latest SDK
         run: node scripts/compatibility.mjs --latest
@@ -53,7 +53,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
           package-manager-cache: false
       - name: Test exact official SDK with synthetic state and denied runtime network
         env:
@@ -79,7 +79,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 22.22.0
+          node-version: 24.22.1
           package-manager-cache: false
       - name: Recheck official latest after every SDK passed
         run: node scripts/compatibility.mjs --latest

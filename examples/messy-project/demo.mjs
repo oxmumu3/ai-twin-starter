@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -13,7 +13,9 @@ import { applyDistillation, readKnowledge } from '../../src/distill.mjs';
 export async function runDemo(target) {
   const cwd = resolve(target);
   await mkdir(cwd, { mode: 0o700 }); // Exclusive: preserve any existing project.
-  await cp(new URL('./raw/', import.meta.url), cwd, { recursive: true, force: false, errorOnExist: true });
+  for (const name of await readdir(new URL('./raw/', import.meta.url))) {
+    await cp(new URL('./raw/' + name, import.meta.url), join(cwd, name), { recursive: true, force: false, errorOnExist: true });
+  }
   await writeFile(join(cwd, '.env'), 'DEMO_ONLY_NOT_A_CREDENTIAL=true\n', { mode: 0o600, flag: 'wx' });
   await initWorkspace(cwd);
   const inventory = await inventoryMaterials(cwd, ['.']);

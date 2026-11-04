@@ -16,10 +16,19 @@ export async function planSdk(args) {
   for (const name of Object.keys(dependencies)) if (name.startsWith('@deepseek-ai/dsh-')) dependencies[name] = sdk;
   for (const name of Object.keys(metadata.peerDependencies ?? {})) if (name.startsWith('@deepseek-ai/dsh-')) dependencies[name] = sdk;
   for (const name of ['dsh-storage', 'dsh-storage-domain', 'dsh-storage-json', 'dsh-client-connection']) dependencies['@deepseek-ai/' + name] = sdk;
+  dependencies['@deepseek-ai/cordis'] = sdk === '0.2.2-rc.1' ? '4.1.0' : '4.0.5';
+  dependencies['@deepseek-ai/schemastery'] = sdk === '0.2.2-rc.1' ? '3.19.0' : '3.18.5';
   // Retain Finder's measured VM-fixture suite baseline; all other Node processes stay at 128 MB.
   const suiteHeapMb = metadata.name === '@oxmumu3/dsh-plugin-finder' ? 512 : 128;
-  const minimumTests = metadata.name === '@oxmumu3/dsh-plugin-finder' ? 768 : 260;
-  return { sdk, dependencies, suiteHeapMb, minimumTests, otherNodeHeapMb: 128, compatibilityOverride: false, hooks: false };
+  const minimumTests = metadata.name === '@oxmumu3/dsh-plugin-finder' ? 1185 : 267;
+  return { sdk, dependencies, nodeMinimumVersion: sdk === '0.2.2-rc.1' ? '24.9.0' : '22.22.0', suiteHeapMb, minimumTests, otherNodeHeapMb: 128, compatibilityOverride: false, hooks: false };
+}
+export function assertSdkNodeVersion(sdk,version=process.versions.node) {
+  if (sdk === '0.2.2-rc.1') {
+    const match=typeof version==='string'?version.match(/^(\d+)\.(\d+)\.(\d+)$/):null;
+    if (!match || Number(match[1]) < 24 || Number(match[1]) === 24 && Number(match[2]) < 9) throw Error('Official 0.2.2-rc.1 requires Node >=24.9.0 before SDK acquisition or execution');
+  }
+  return version;
 }
 export function validateTap(text, minimumTests) {
   const counts = Object.fromEntries([...text.matchAll(/^# (tests|pass|fail|skipped|cancelled|todo) (\d+)$/gm)].map(([, key, value]) => [key, Number(value)]));
@@ -30,6 +39,7 @@ export function validateTap(text, minimumTests) {
 async function main() {
   const plan = await planSdk(process.argv.slice(2));
   if (process.argv[4] === '--plan') { console.log(JSON.stringify(plan)); return; }
+  assertSdkNodeVersion(plan.sdk);
   process.umask(0o077);
   const root = await mkdtemp(join(tmpdir(), 'dsh-sdk-ci-'));
   const home = join(root, 'home'), carrier = join(root, 'carrier'), stage = join(root, 'source');
@@ -62,7 +72,7 @@ async function main() {
   const osSandbox = await verifySandbox({ cwd: stage, env: runtime });
   await writeFile(join(output, 'network-proof.json'), JSON.stringify(osSandbox, null, 2) + '\n');
   const tests = (await readdir(join(stage, 'test'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => 'test/' + name);
-  const suite = await run(process.execPath, ['--max-old-space-size=' + plan.suiteHeapMb, '--test', '--test-concurrency=1', ...tests], stage, runtime, 'suite.tap', 240000, true);
+  const suite = await run(process.execPath, ['--max-old-space-size=' + plan.suiteHeapMb, '--test', '--test-reporter=tap', '--test-concurrency=1', ...tests], stage, runtime, 'suite.tap', 240000, true);
   const counts = validateTap(suite.stdout, plan.minimumTests);
   const contract = await run(process.execPath, ['--max-old-space-size=128', 'scripts/ci-host-contract.mjs'], stage, runtime, 'host-contract.log', 45000, true);
   const hostContract = JSON.parse(contract.stdout);

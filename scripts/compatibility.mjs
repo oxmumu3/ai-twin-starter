@@ -18,14 +18,40 @@ export function validateCompatibility(metadata,version,verified=matrixVersions){
  for(const [name,range] of Object.entries(metadata.peerDependencies??{}))if(name.startsWith('@deepseek-ai/dsh-')&&!admits(range))throw Error('Required peer is outside validated compatibility: '+name+' '+version);
  return version;
 }
+export function desktopVersion(feed){
+ if(typeof feed!=='string'||Buffer.byteLength(feed)>256*1024)throw Error('Invalid official Desktop feed');
+ const values=[];
+ // Project only supported top-level YAML fields; quoted version keys are the
+ // same key, so a second spelling cannot hide an ambiguous release target.
+ for(const line of feed.replace(/^\ufeff/,'').split(/\r?\n/)){
+  if(!line.trim()||/^[ \t#]/.test(line))continue;
+  const field=/^(?:([A-Za-z_][A-Za-z0-9_-]*)|("version"|'version'))[ \t]*:[ \t]*(.*)$/.exec(line);
+  if(!field)throw Error('Unsupported official Desktop feed syntax');
+  if((field[1]??field[2].slice(1,-1))==='version')values.push(field[3]);
+ }
+ if(values.length!==1)throw Error('Official Desktop feed must supply one unambiguous exact version');
+ const scalar=/^(?:"([^"]+)"|'([^']+)'|([^\s#]+))(?:[ \t]+#[^\r\n]*)?[ \t]*$/.exec(values[0]);
+ if(!scalar)throw Error('Invalid official Desktop version scalar');
+ const version=scalar.slice(1).find(value=>value!==undefined);
+ const semver=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+ if(!semver.test(version)||version.split('+',1)[0].split('-').slice(1).join('-').split('.').some(value=>/^0\d+$/.test(value)))throw Error('Invalid exact official Desktop version');
+ return version;
+}
+export function validateOfficialTargets(metadata,{latest,desktop}={}){
+ validateCompatibility(metadata,latest);validateCompatibility(metadata,desktop);
+ return {latest,desktop};
+}
 async function main(){
  const metadata=JSON.parse(await readFile(new URL('../package.json',import.meta.url)));
  let version=process.argv[2];
  if(version==='--matrix'){validateCompatibility(metadata,matrixVersions.at(-1));console.log(JSON.stringify({sdk:matrixVersions}));return;}
  if(version==='--latest'){
-  const response=await fetch('https://registry.npmjs.org/@deepseek-ai%2fdsh',{signal:AbortSignal.timeout(15000)});
-  if(!response.ok)throw Error('Official version lookup failed: '+response.status);
-  const value=await response.json();version=value['dist-tags']?.latest;
+  const urls=['https://registry.npmjs.org/@deepseek-ai%2fdsh','https://download.deepseek.com/dsh-desk/feeds/mac-arm64/nightly-mac.yml'];
+  const responses=await Promise.all(urls.map(url=>fetch(url,{signal:AbortSignal.timeout(15000)})));
+  for(const response of responses)if(!response.ok)throw Error('Official version lookup failed: '+response.status);
+  const registry=await responses[0].json(),desktop=desktopVersion(await responses[1].text());
+  const targets=validateOfficialTargets(metadata,{latest:registry['dist-tags']?.latest,desktop});
+  console.log(JSON.stringify({supportedOfficialVersion:targets.latest,officialDesktopVersion:targets.desktop,compatibilityOverride:false}));return;
  }
  validateCompatibility(metadata,version);console.log(JSON.stringify({supportedOfficialVersion:version,compatibilityOverride:false}));
 }
