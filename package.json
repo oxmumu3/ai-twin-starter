@@ -1,21 +1,22 @@
 {
-  "name": "dsh-agent-twin",
-  "version": "0.4.0-preview.3",
-  "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
+  "name": "@oxmumu3/dsh-agent-twin",
+  "version": "0.5.0",
+  "description": "DSH AI 分身工作台（1 个主分身 + 多项目只读能力包 + 5 通道本机长连接与物理隔离沙箱）",
   "type": "module",
   "license": "MIT",
-  "author": "牛村木木山",
+  "author": "牛村木木山 <157776623+oxmumu3@users.noreply.github.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/oxmumu3/ai-twin-starter.git"
   },
+  "main": "./index.js",
   "engines": {
-    "node": ">=22.13",
-    "dsh": "0.2.1-rc.2 || 0.2.1-rc.3"
+    "node": ">=22",
+    "dsh": "0.2.2-rc.2 || 0.2.2-rc.3"
   },
   "exports": {
     ".": "./index.js",
-    "./client": "./src/client.js",
+    "./client": "./client.js",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -23,27 +24,24 @@
   },
   "files": [
     "bin/",
-    "src/",
-    "templates/",
+    "client.js",
+    "cordis.patch.yml",
+    "docs/",
     "examples/",
     "index.js",
-    "cordis.patch.yml",
-    "README.md",
-    "SETUP.md",
+    "lib/",
+    "shared/",
+    "src/",
+    "templates/",
     "LICENSE",
-    "docs/materials.md",
-    "docs/channel.md",
-    "docs/verification.md",
-    "docs/privacy.md",
-    "docs/dsh-install.md",
-    "docs/architecture.md",
-    "docs/distill.md",
-    "docs/native.md",
-    "docs/release-0.4.md",
-    "docs/rc3-compatibility.md"
+    "README.md",
+    "SETUP.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "build": "node scripts/build-client.mjs",
+    "check:client": "node scripts/check-client.cjs",
+    "prepack": "npm run build && npm run check:client",
+    "test": "node --test test/scanner.test.mjs test/twin-engine.test.mjs test/channels-and-guest.test.mjs test/routes-and-store.test.mjs test/legacy-compat.test.mjs"
   },
   "dsh": {
     "manifestVersion": 1,
@@ -53,25 +51,32 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-general",
+        "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-workspace",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-api-session-controller"
+        "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3",
-    "@deepseek-ai/schemastery": "3.18.5",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3",
-    "@deepseek-ai/schemastery": "3.18.5",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3"
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/schemastery": "3.19.0",
+    "esbuild": "^0.25.0",
+    "react": "^18.3.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
   }
 }
