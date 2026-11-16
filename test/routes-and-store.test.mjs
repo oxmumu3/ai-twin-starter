@@ -141,3 +141,105 @@ test('Store 0600 secrets, non-destructive legacy import, HTTP security guards, t
   assert.equal(connection.routes.length, 0);
   assert.equal(hostRuntime.guestServer.getBaseUrl(), '');
 });
+
+test('Workspace candidate prioritization, update_person, update_person_note, simulate_inbound, and empty legacy pruning', async t => {
+  const dshHome = await mkdtemp(join(tmpdir(), 'twin-ws-sort-'));
+  const realProj = join(dshHome, 'Agent');
+  const tempProj = join(dshHome, 'dsh-s2-test-workspace.AbCd1234');
+  await mkdir(join(realProj, 'docs'), { recursive: true });
+  await mkdir(tempProj, { recursive: true });
+  await writeFile(join(realProj, 'docs', 'readme.md'), '# 真实业务项目\n\n标准净值按完成时间统计。\n', 'utf8');
+
+  // Seed empty 0-doc legacy project entry in state.json to verify init() pruning
+  const stateDir = join(dshHome, 'agent-twin');
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(join(stateDir, 'state.json'), JSON.stringify({
+    format: 2,
+    revision: 1,
+    lifecycleStage: 'cold',
+    scene: 'onboard',
+    mountedProjects: [{ id: 'legacy-empty', projectName: 'project', docCount: 0, fileCount: 0, fromLegacy: true }],
+    capabilities: [],
+    people: [],
+    approvals: [],
+    deliveries: []
+  }), 'utf8');
+
+  const connection = createMockConnection();
+  const ctx = new Context();
+  ctx.baseUrl = `file://${join(dshHome, 'profiles', 'desktop')}/`;
+  ctx.provide('tools', { register: () => {} });
+  ctx.provide('connection', connection);
+  ctx.provide('workspaceRegistry', {
+    list: () => [
+      { id: 'ws-temp', name: 'dsh-s2-test-workspace.AbCd1234', rootPath: tempProj },
+      { id: 'ws-real', name: 'Agent', rootPath: realProj }
+    ]
+  });
+
+  let hostRuntime = null;
+  t.after(async () => {
+    await hostRuntime?.dispose?.();
+    await ctx.fiber.dispose();
+    await rm(dshHome, { recursive: true, force: true });
+  });
+
+  hostRuntime = await mountTwinHost(ctx, { stateDirectory: stateDir, guestPort: 0 });
+
+  // Empty 0-doc legacy fixture must have been pruned on init()
+  assert.equal(hostRuntime.store.getState().mountedProjects.length, 0);
+
+  // /view prioritizes real workspace ahead of test workspace and provides scanSummary + scope
+  const viewRes = await callRoute(connection.routes, '/api/agent_twin/view', 'GET');
+  const viewJson = await viewRes.json();
+  assert.equal(viewJson.projects[0].name, 'Agent');
+  assert.equal(viewJson.projects[0].docCount, 1);
+  assert.ok(Array.isArray(viewJson.projects[0].scope) && viewJson.projects[0].scope.length === 3);
+  assert.equal(viewJson.projects[1].isTempWorkspace, true);
+
+  // Interactive 4-step extraction -> fast_forward_extraction -> complete_extraction
+  const stRes = await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'start_extraction', candidateId: 'ws-real', autoComplete: false }
+  });
+  const stJson = await stRes.json();
+  assert.equal(stJson.view.extractionJob.step, 1);
+
+  const ffRes = await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'fast_forward_extraction' }
+  });
+  assert.equal((await ffRes.json()).view.extractionJob.status, 'ready');
+
+  await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'complete_extraction', scene: 'desk' }
+  });
+
+  // Add person -> update_person -> update_person_note -> simulate_inbound
+  const addRes = await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'add_person', name: '林总', role: '客户代表', channel: '免装试用网页', mode: 'confirm', digest: false }
+  });
+  const personId = (await addRes.json()).result.person.id;
+
+  const updRes = await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'update_person', personId, name: '林总监', mode: 'summary', digest: true }
+  });
+  assert.equal((await updRes.json()).result.person.name, '林总监');
+
+  const noteRes = await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'update_person_note', personId, note: '仅发汇总口径' }
+  });
+  assert.equal((await noteRes.json()).view.people[0].note, '仅发汇总口径');
+
+  const simRes = await callRoute(connection.routes, '/api/agent_twin/action', 'POST', {
+    headers: { 'Content-Type': 'application/json' },
+    body: { action: 'simulate_inbound', personId, question: '请说明标准净值统计口径' }
+  });
+  const simJson = await simRes.json();
+  assert.equal(simJson.result.action, 'pending_approval');
+  assert.equal(simJson.view.approvals.length, 1);
+});

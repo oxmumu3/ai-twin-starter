@@ -170,3 +170,39 @@ test('per-caller physical isolation, redlines, knowledge gap escalation, daily c
   assert.equal(cmdRule.kind, 'rule');
   assert.ok(store.getState().rules.some(r => r.kind === '红线' && r.text.includes('客户账号')));
 });
+
+test('interactive 4-step progressive extraction (step 1 -> fastForward -> complete) and clean dispose', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'twin-prog-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projDir = join(root, 'proj');
+  await mkdir(join(projDir, 'docs'), { recursive: true });
+  await writeFile(join(projDir, 'docs', 'guide.md'), '# 增长核数手册\n\n口径统一采用 T+1 净额。\n', 'utf8');
+
+  const store = createTwinStore({ rootDir: join(root, 'twin-state'), dshHome: root, legacyCandidates: [] });
+  await store.init();
+  const engine = createTwinEngine({ store });
+
+  const scan = await engine.startExtraction({
+    rootPath: projDir,
+    projectName: '增长核数库',
+    mode: 'initial',
+    brief: '先报结论再列依据',
+    autoComplete: false
+  });
+  assert.ok(Array.isArray(scan.samplePrompts) && scan.samplePrompts.length === 3);
+  assert.equal(store.getState().extractionJob.step, 1);
+  assert.equal(store.getState().extractionJob.status, 'running');
+
+  await engine.fastForwardExtraction();
+  assert.equal(store.getState().extractionJob.step, 4);
+  assert.equal(store.getState().extractionJob.status, 'ready');
+  assert.equal(store.getState().lifecycleStage, 'mature');
+  assert.ok(store.getState().mountedProjects.length === 1);
+  assert.ok(store.getState().rules.some(r => r.text.includes('先报结论再列依据')));
+
+  await engine.completeExtractionJob('desk');
+  assert.equal(store.getState().extractionJob, null);
+  assert.equal(store.getState().scene, 'desk');
+
+  engine.dispose();
+});
