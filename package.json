@@ -1,6 +1,6 @@
 {
   "name": "@oxmumu3/dsh-agent-twin",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DSH AI 分身工作台（1 个主分身 + 多项目只读能力包 + 5 通道本机长连接与物理隔离沙箱）",
   "type": "module",
   "license": "MIT",
@@ -12,7 +12,7 @@
   "main": "./index.js",
   "engines": {
     "node": ">=22",
-    "dsh": "0.2.2-rc.2 || 0.2.2-rc.3"
+    "dsh": ">=0.2.2-rc.2 <0.2.4-0"
   },
   "exports": {
     ".": "./index.js",
