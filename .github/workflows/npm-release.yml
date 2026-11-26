@@ -100,6 +100,41 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('sha256='+digest+'\n')
           print(json.dumps(manifest))
           PY
+      - name: Scan release tarball against private denylist secret
+        env:
+          PUBLIC_DENYLIST_REGEX: ${{ secrets.PUBLIC_DENYLIST_REGEX }}
+        run: |-
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,re,tarfile
+          from pathlib import Path
+          raw_pattern=os.environ.get('PUBLIC_DENYLIST_REGEX','').strip()
+          assert raw_pattern,'Missing repository secret PUBLIC_DENYLIST_REGEX (fail closed)'
+          rx=re.compile(raw_pattern,re.IGNORECASE)
+          root=Path(os.environ['RUNNER_TEMP'])/'release-artifact'
+          manifest=json.loads((root/'release-manifest.json').read_text())
+          artifact=root/manifest['filename']
+          hits=[]
+          with tarfile.open(artifact,'r:gz') as tar:
+            for member in tar.getmembers():
+              if not member.isfile():
+                continue
+              if rx.search(member.name):
+                hits.append(f'path:{member.name}')
+                continue
+              if member.size>8*1024*1024:
+                continue
+              data=tar.extractfile(member).read()
+              if b'\x00' in data[:4096]:
+                continue
+              text=data.decode('utf-8','ignore')
+              for idx,line in enumerate(text.splitlines(),1):
+                if rx.search(line):
+                  hits.append(f'{member.name}:{idx}')
+                  break
+          assert not hits,f'Blocked release: denylist matched {len(hits)} location(s): ' + ', '.join(hits[:10])
+          print('PUBLIC_DENYLIST_SCAN_PASSED (0 matches)')
+          PY
       - name: Store this run’s immutable release artifact
         id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
