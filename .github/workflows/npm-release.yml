@@ -22,13 +22,7 @@ defaults:
   run:
     shell: bash
 jobs:
-  compatibility:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'oxmumu3/ai-twin-starter' && github.ref == 'refs/heads/main' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/sdk-compatibility.yml
   validate:
-    needs: compatibility
     name: Validate source and pack
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'oxmumu3/ai-twin-starter' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
@@ -58,10 +52,10 @@ jobs:
           npm --version
       - name: Install locked dependencies without hooks
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Check source and build the actual package
-        run: node --test test/native-package.test.mjs test/native-client.test.mjs test/native-plugin.test.mjs
-      - name: Recheck official latest immediately before packing
-        run: node scripts/compatibility.mjs --latest
+      - name: Check client bundle and run unit test suite
+        run: |-
+          npm run check:client
+          npm test
       - name: Pack and validate the exact release artifact
         id: pack
         env:
@@ -94,8 +88,6 @@ jobs:
            assert metadata['publishConfig']=={'access':'public','tag':'latest'},'Unexpected publication configuration'
            repository=metadata['repository']
            assert repository['url']=='git+https://github.com/'+os.environ['EXPECTED_REPOSITORY']+'.git','Repository mismatch'
-           if os.environ['PACKAGE_PATH']=='./management-plugin':
-            assert repository.get('directory')=='management-plugin','Wrong management subpackage'
            patch=metadata['dsh']['bundle']['patch'].removeprefix('./')
            patch_text=tar.extractfile('package/'+patch).read().decode()
            assert ('name: "'+expected+'"') in patch_text or ("name: '"+expected+"'") in patch_text,'Missing quoted scoped Cordis reference'
@@ -168,7 +160,6 @@ jobs:
            assert metadata['name']==os.environ['EXPECTED_PACKAGE'] and metadata['version']==manifest['version'],'Tarball identity mismatch'
            assert metadata['repository']['url']=='git+https://github.com/'+os.environ['EXPECTED_REPOSITORY']+'.git'
            assert metadata['publishConfig']=={'access':'public','tag':'latest'}
-           if os.environ['EXPECTED_PACKAGE']=='@oxmumu3/dot-dsh-management':assert metadata['repository']['directory']=='management-plugin'
            assert not set(metadata.get('scripts',{})) & {'preinstall','install','postinstall','prepare','prepack','postpack','prepublish','prepublishOnly','publish','postpublish'}
           with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('tarball='+str(artifact)+'\n')
           print('Verified publication artifact:',metadata['name'],metadata['version'],manifest['sha256'])

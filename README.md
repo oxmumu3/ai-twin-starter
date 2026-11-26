@@ -1,80 +1,68 @@
-# Agent Twin · 0.4 预发布
+# AI 分身工作台 · `@oxmumu3/dsh-agent-twin` (v0.6.3)
 
-📖 设计思考与生态复盘：[《DeepSeek Harness 要走向极客玩具还是大众普惠？》](https://mp.weixin.qq.com/s/RIAYNqo8OsUVx2JpR8MPyA)
+在 DeepSeek Harness (`0.2.2-rc.5` / `0.2.3-alpha.2`) 内把你的本地专业工作区发布为**满血隔离 AI 分身**：**1 个满血 DSH 只读内核 + 按人与目录物理裁剪工作区（薄 Harness 边界）+ `/try` 公开扫码真体验大厅 + 0.2.3 官方飞书/企微连接器与真个人微信 iLink + 对话流与手机远程拍板 + 内置语义知识图谱**。
 
-在 DeepSeek Harness 内搭建和持续管理一个有来源、有权限边界的 AI 分身。原生工作台提供“项目沉淀、分身能力、通道连接、身份与规则”四个常驻模块，首次搭建后可在日常管理中继续补材料、更新能力、处理审批和检查回执。
+> 兼容 DeepSeek Harness Desktop / Web **0.2.2-rc.2 ~ 0.2.3-alpha.2**（Node.js 22+），不内置任何付费墙或商业化限制，所有通道凭据仅加密保存在本机 `0600` 凭据库 `$DSH_HOME/agent-twin/secrets.json`。
 
-原生版面向 **DeepSeek Harness Web / Desktop 0.2.1-rc.2、0.2.1-rc.3、0.2.1-rc.4、0.2.1-rc.5 / Node.js 22.13+**。Desktop 已验证安装启用、真实模型整理蒸馏、候选试跑与明确采用、日报和材料回流；真实 Slack 收发仍待验收，完整证据见 [0.4 发布说明](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/release-0.4.md)。其他宿主版本需重新验证。模型使用宿主配置，Slack 需要你自己的应用授权。完整路径见 [原生运行手册](docs/native.md)。
+## 30 秒安装（DeepSeek Harness 创造模式）
 
-用已有工作 Agent，按四步搭分身：**准备分身材料 → 蒸馏分身 → 连接通道 → 设定权限**。
+1. 在 DeepSeek Harness 新建会话，点顶部「标准模式」下拉，切到「创造模式」。
+2. 复制下面这句话发给 Agent，弹出授权时点「允许」：
+请通过插件管理器，从 npm 官方源安装并启用 @oxmumu3/dsh-agent-twin@latest。完成后请核对版本和启用状态，再带我打开左侧「AI 分身」。
+（也可以在「插件 -> 添加插件」直接填入 `@oxmumu3/dsh-agent-twin@latest` 安装并启用。）
+开源仓库与图文说明（觉得有帮助欢迎点个 Star）：
+https://github.com/oxmumu3/ai-twin-starter
 
-你只需指定项目范围、补充必要事实并完成自己的渠道授权。资料盘点、结构化整理、命令和 JSON 提案由当前 Agent 处理；不要求你先把项目整理成一套完美的知识库。
+---
 
-## 四步分别做什么
+## v0.6.3 核心架构升级
 
-1. **准备分身材料**：在选定项目内盘点元数据，明确选材后读取正文，整理背景、知识、判断、工作流、案例、工具和成果；保留出处与缺口。原生版调用宿主模型，通用 CLI 由当前 Agent 组织提案。
-2. **蒸馏分身**：从所选原始来源提炼知识、判断、工作流和工具卡，校验出处。原生版先生成候选，用具体任务试跑，再明确采用；材料包或候选生成都不等于能力已经验收。
-3. **连接通道**：用自己的 Slack 授权核对真实身份、允许频道和本人目的地。先做只读核验，原生版另行执行明确的回传测试并保存记录；通用工具路径保持只读。
-4. **设定权限**：按稳定身份、范围、动作和目的地设置规则。陌生身份拒绝，越权或不明确的请求交本人；原生服务还需本人明确启用，通用 `channel-tick` 继续只读 dry-run。
+### 0. `/try` 公开扫码真体验大厅（Fail-Closed 隔离 + 匿名会话分流）
+- **同一张永久二维码，每人独立隔离会话**：开启 `04 公开扫码真体验大厅（/try）` 并配合公网隧道域名（如 Cloudflare Named Tunnel `https://twin.finvo.ai/try`）后，每位扫码访客通过 `HttpOnly; SameSite=Lax` Cookie (`dsh_twin_vid`) 分配独立对话目录与独立 DSH `--session-id`，多人同时体验互不串台。
+- **Fail-Closed 安全默认 + 三层防刷护栏**：未显式勾选 `capIds` 时默认不挂载任何目录、绝不继承私人项目名称或未定边界全局图谱；同时内置单访客每日轮次上限（默认 5 轮）、大厅全局每日总上限（默认 200 轮）与按 IP 滑动窗口防刷限流。
+- **即点即问 + 一键部署引流**：大厅页自带 3 个可点击试问按钮、SSE 实时核查步骤流与 `#编号` 红线拦截演示，并在访客达到体验上限或想自建时给出完整 30 秒创造模式安装指令。
 
-代码负责读取边界、来源校验、落盘、通道探测、权限与任务状态。材料可以边工作边积累；安装不会附带作者的业务知识、工具账号或个人记忆。
+### 1. 满血 DSH 原生内核 × 目录级物理裁剪隔离 × 流式实时进度
+- **不再用伪关键词切片糊弄同事**：当运行环境具备 DSH 凭据时，来访者提问直接在 `$DSH_HOME/agent-twin/dsh-runner-home` 隔离实例下唤醒真实只读 DSH Agent（`--profile headless --permission-mode read-only --approval-policy never`），保留每名访客独立的 `--session-id` 连续记忆，实打实使用 `read` / `grep` / `glob` / 只读计算核对 CSV、口径文档与脚本后再回答。
+- **按人与按目录双层物理裁剪 (`scopePaths`)**：每次会话通过 `materializeScopedWorkspace()` 为每位来访者生成 `0700` 专属符号链接沙箱；除按能力包过滤外，支持在工作台为每项能力单独限定目录路径（如仅挂载 `docs/` 与 `README.md` 而不挂 `data/`），`.env*`、私钥凭据、`DELETE/INSERT` 写库 SQL、`.git` 与遥测日志 JSON 从物理目录里彻底消失。
+- **实时流式步骤 + 3.5 秒慢响应安抚**：`/g/:token` 免装网页直连 `POST /api/guest/:token/ask-stream` SSE 事件流实时播报只读核查步骤；飞书/微信/企微/Slack 若深查超过 3.5 秒自动先回一句安抚回执。
+- **语义红线 + 手机远程拍板闭环**：命中红线或资料缺口时生成带 `#编号` 的待拍板卡片，支持通过官方飞书机器人私信或本机 `dsh-wechat` 推送到负责人手机；直接在手机回复 `批准 #码` / `改 #码：最终回复` / `记规矩 #码：内容` 即可远程下发给来访对象。
 
-## 给 Agent 的一句话
+### 2. 官方办公连接器一键复用 + 真个人微信 iLink
+- **飞书 (`@deepseek-ai/dsh-feishu`)**：一键检测并复用 DSH 0.2.3 官方插件 OAuth（零 App Secret 落盘），自动挂载 `lark-cli event consume im.message.receive_v1 --as bot` 实时事件流，识别本人在群聊 15 分钟内发言自动收声，并在私聊支持远程拍板指令，批准草稿时通过 `im +messages-reply / +messages-send` 回传。
+- **企业微信 (`@deepseek-ai/dsh-wecom`)**：一键复用官方 `wecom-cli` 出站回传，同时保留智能机器人长连接实时接入。
+- **个人微信（真实 iLink 协议）**：接入 `weixin-ilink` 真实扫码二维码生成（SVG）、状态轮询、长轮询入站与 `-2` 异常自动重恢复，零公众号认证门槛。
+- **免装试用网页 & Slack Socket Mode**：按人签发独立沙箱网页链接，无须安装任何客户端即可试跑验证；所有已启用通道在插件重启后自动重连。
 
-其他 Agent：
+### 3. DSH 原生度拉满 + 内置语义知识图谱
+- 收敛冗长单一工具为四枚职责清晰的原子工具：
+  - `twin_status`：查看值班状态、切换 `shadow / live / off`、刷新官方连接器探测或本地只读自测；
+  - `twin_publish_workspace`：从本地目录提炼能力包并可选一键挂载官方飞书；
+  - `twin_grant_access`：为指定同事或合作方开通网页/微信/飞书/企微/Slack 隔离授权；
+  - `twin_inbox`：查看待拍板草稿与红线拦截，并直接在主对话内批准或忽略。
+- 接入 **`tool.call.toolview` (`@deepseek-ai/dsh-client-ui-tool`)**：在主对话里直接编辑草稿文本、点击「批准发出」「发出并记为规矩」「忽略」或切换值班模式，无需来回跳转左侧面板。
+- 内置 **`graph-provider` 语义图谱提供器 + `ctx.get('agentTwin')`**：开箱即自动读取项目内 `graph/*.json` / `knowledge/*.json` / `*.graph.json` 与工作台自定义节点（按 `allowedModes` 过滤并做 1 跳公式/异常/边界联想），同时保持 **0.2.2-rc.5 + 0.2.3-alpha.2 单包双兼容**。
 
-> 请阅读 https://github.com/oxmumu3/ai-twin-starter 的 README 和全部 Releases（含预发布），选择已公开、与当前宿主兼容的版本，核对包及 SHA256SUMS，再按该版本 SETUP.md 带我准备材料、蒸馏分身、连接通道、设定权限。先完成只读验收。
+---
 
-DeepSeek Harness：
+## 脱敏实战案例：`examples/growth-bi-desk/`
 
-> 请阅读 https://github.com/oxmumu3/ai-twin-starter 的 README 和 https://github.com/oxmumu3/ai-twin-starter/releases （包含预发布），核对当前 Harness 版本，选择已经公开且兼容的安装包，验证 SHA256SUMS 后安装并回读启用状态。按对应版本运行手册带我搭建 AI 分身；若安装 0.4，打开原生“AI 分身”页面，完成首次搭建后继续日常管理。先核验模型、来源和 Slack 权限，再由我明确启用服务。
+仓库内置完整的脱敏「增长与 BI 协同工作区」实战样本（全部指标与成本已重构脱敏）：
+- `docs/attribution-and-roi-handbook.md`：D7 净回本 ROI 公式、自然量剔除规则与 Q1 未定稿返点边界；
+- `docs/anomaly-playbook.md`：退款率/苹果延迟入账排查步骤；
+- `data/channel_weekly_metrics.csv` + `scripts/calc_roi_summary.py`：4 渠道 3 周 12 行投放数据；
+- `graph/growth-semantic-graph.json`：增长与 BI 语义知识图谱示范（串联指标公式、W03 延迟事件与 Q1 返点权限边界）；
+- 刻意混入 `.env.production`（假数仓私钥哨兵）与 `scripts/export_raw_user_phones.sql`（假写库/导出手机号 SQL），供端到端验收分身隔离边界。
 
-首次由你选定可读取范围，并完成自己的 Slack 授权和必要的身份/范围设置。不要在对话中粘贴 token。免开发指这些已实现步骤不要求你编写程序；不代表免授权、没有材料也能复制能力，或安装后自动常驻。
+---
 
-## 从零散项目开始
-
-[零散项目示例](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/examples/messy-project/README.md)用独立编写的合成背景、笔记、旧报告和工具说明演示材料准备。待转换的 PDF 留作缺口，被排除的配置不作为知识来源；不要求先有成套规则文件。后续过程是盘点 → 选择与读取来源 → Agent 整理材料/缺口 → 校验落包 → 从原始来源蒸馏。
-
-[工作方法示例](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/examples/synthetic-operations/README.md)保留既有的四类蒸馏演示。它们均不包含真实业务资料或作者私有知识包。
-
-## Agent 使用的命令
-
-要求 Node.js 22.13+。以下为兼容 0.3 的通用 CLI 路径，语义整理由当前 Agent 完成；0.4 原生工作台则调用宿主已配置的真实模型。下面的命令由 Agent 执行，用户无需手写提案。
+## 开发者 / CI 验证说明
 
 ```sh
-git clone https://github.com/oxmumu3/ai-twin-starter.git
-cd ai-twin-starter
-node bin/agent-twin.mjs init --cwd /absolute/path/to/your/project
-node bin/agent-twin.mjs materials-inventory --cwd /absolute/path/to/your/project --root .
-node bin/agent-twin.mjs materials-prepare --cwd /absolute/path/to/your/project --entry notes.md --entry reports/previous.md
+npm install
+npm run build
+npm run check:client
+npm test
 ```
 
-Agent 用 prepare 返回的真实内容组织 `{project, materials, gaps}`，写本地私有提案，再运行 `materials-apply --batch <batchId> --packet <proposal.json>`。`materials-status` 核对材料包；`materials-distill` 重新读取已选原始来源，进入既有 `distill-apply` 流程。完整操作见 [SETUP.md](SETUP.md)，卡片结构见 [蒸馏说明](docs/distill.md)，授权与只读接口见 [通道说明](docs/channel.md)。
-
-## 本地工作流与材料回流
-
-原生“分身能力”支持严格 CSV 输入的本地日报、正文预览和历史；“项目沉淀”支持材料提交、审阅、明确采纳，再单独纳入来源。它们由主人显式发起，远程来信不能触发；材料采纳后仍须重新整理、蒸馏、试跑并采用能力候选。通用 CLI 继续可用，命令与边界见 [SETUP.md](SETUP.md#本地有界工作流与材料回流)。
-
-## DSH 与市场
-
-DSH 插件同时提供原生工作台和兼容 0.3 的 `agent_twin` 工具。后者使用宿主当前项目目录并尊重只读/工作区权限。[安装说明](docs/dsh-install.md)列出宿主版本和操作。
-
-DSH 有官方提供的[自定义插件市场功能](https://deepseek-harness.github.io/deepseek-harness/guide/plugin-market)。本项目提供[自托管索引](https://raw.githubusercontent.com/oxmumu3/ai-twin-starter/main/market/index.json)，可以添加到该发现页；这不代表本项目经过官方统一审核或收录。直接安装固定版本 `.tgz` 不需要先添加市场。
-
-## 版本与验收边界
-
-- **0.1.0**：模板初始化；当时未实现内容蒸馏和通道连接，把它描述成完整搭建入口不准确。
-- **0.2.0**：增加显式资料蒸馏、来源刷新、Slack 只读探测和代码权限 dry-run，仍默认用户已有可直接选择的材料。
-- **0.3.0**：补上零散项目的材料盘点、整理、缺口与来源校验，并从已选原始来源衔接蒸馏。
-- **0.4.0-preview.3**：新增原生日报与材料回流管理，保留 preview.1 的四模块与服务机制。
-- **0.4.0-preview.1**：新增原生四模块、能力候选试跑与采用、授权知识问答/草稿/Slack 回传、审批、持久任务与恢复。仅作为预发布提供，下载是否可用以 [全部 Releases](https://github.com/oxmumu3/ai-twin-starter/releases) 的实际资产为准；不依赖 `/releases/latest` 发现预发布。
-
-0.3 通用工具中的正式业务执行、审批消费、对外回复和持续调度仍由原 Agent 与其授权工具承担，须分别验收。合成示例和测试不能证明真实 Slack 已收发或服务已全天在线；`status` 不把配置齐全标成已在线。
-
-0.4 原生执行器只使用本次身份获准的来源卡片，完成问答、草稿和消息回传，不开放任意 Agent 工具调用。工具卡说明不等于已经接通或执行了工具。合成模型和隔离消息适配器的端到端验收及重启恢复已完成；Desktop 的实际安装和本地工作流另有实跑记录。真实 Slack 收发、真实同事体验及长期稳定性仍需验收。GitHub 预发布分发不代表官方市场收录或生产服务验收。
-
-MIT，作者：牛村木木山（`oxmumu3`）。[安装说明](docs/dsh-install.md)、[原生运行手册](docs/native.md)、[0.4 发布说明](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/release-0.4.md)。旧 [验收记录](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/verification.md)、[架构](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/architecture.md)和 [通道说明](docs/channel.md)描述通用 0.3 路径；原生版以本次发布说明及运行手册为准。
-
-## 官方 rc.3 兼容维护
-
-`0.4.0-preview.3` 保留已安装 0.4.0-preview.2 的全部运行代码，仅更新官方 Harness 0.2.1-rc.3 及其 SDK 兼容声明、版本和安装文案。不含正在开发的 0.5 新功能。现有能力、身份规则、材料及投递记录不迁移、不清除。详见[兼容验收](https://github.com/oxmumu3/ai-twin-starter/blob/132996e3fc112e78b84c4215b63fb070a9dbc404/docs/rc3-compatibility.md)。
+> 通用 CLI 兼容路径与底层设计参见 [SETUP.md](SETUP.md) 与 [docs/architecture.md](docs/architecture.md)。MIT License · 作者：牛村木木山 (`oxmumu3`)。

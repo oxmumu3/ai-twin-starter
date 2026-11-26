@@ -1,46 +1,54 @@
 {
   "name": "@oxmumu3/dsh-agent-twin",
-  "version": "0.4.0-preview.6",
-  "description": "DSH-native AI twin: persistent project materials, evidence-backed capability versions, authorized channels, identity rules and service receipts.",
+  "version": "0.6.3",
+  "description": "DSH AI 分身工作台（满血隔离 DSH Agent + 公开扫码真体验大厅 /try + 0.2.3 官方飞书/企微与真个人微信 iLink + 对话流与手机拍板 + 语义知识图谱）",
   "type": "module",
   "license": "MIT",
-  "author": "牛村木木山",
+  "author": "牛村木木山 <157776623+oxmumu3@users.noreply.github.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oxmumu3/ai-twin-starter.git"
   },
+  "main": "./index.js",
+  "icon": "./icon.svg",
   "engines": {
-    "node": ">=22.13",
-    "dsh": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1"
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.2 <0.2.3-0 || >=0.2.3-alpha.0 <0.2.4-0"
   },
   "exports": {
     ".": "./index.js",
-    "./client": "./src/client.js",
+    "./client": "./client.js",
+    "./locale/zh.json": "./locale/zh.json",
+    "./locale/en.json": "./locale/en.json",
     "./package.json": "./package.json"
   },
   "bin": {
     "agent-twin": "./bin/agent-twin.mjs"
   },
   "files": [
-    "index.js",
-    "src/",
     "bin/",
-    "templates/",
-    "examples/slack-app-manifest.json",
+    "client.js",
     "cordis.patch.yml",
-    "README.md",
-    "SETUP.md",
+    "docs/",
+    "examples/",
+    "icon.svg",
+    "index.js",
+    "lib/",
+    "locale/",
+    "shared/",
+    "src/",
+    "templates/",
     "LICENSE",
-    "docs/materials.md",
-    "docs/channel.md",
-    "docs/privacy.md",
-    "docs/dsh-install.md",
-    "docs/distill.md",
-    "docs/native.md"
+    "README.md",
+    "SETUP.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "compatibility:check": "node scripts/compatibility.mjs --latest"
+    "build": "node scripts/build-client.mjs",
+    "check:client": "node scripts/check-client.cjs",
+    "test": "node --test test/scanner.test.mjs test/twin-engine.test.mjs test/channels-and-guest.test.mjs test/routes-and-store.test.mjs test/legacy-compat.test.mjs test/v6-connectors-and-fullblood.test.mjs test/v61-p0-p2-features.test.mjs test/v62-public-lobby.test.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
   },
   "dsh": {
     "manifestVersion": 1,
@@ -50,34 +58,34 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-general",
+        "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-workspace",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-api-session-controller"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-tool"
       ]
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1",
-    "@deepseek-ai/schemastery": "3.18.5 || 3.19.0",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1"
+    "@deepseek-ai/cordis": "^4.0.2 || ~4.2.0-alpha.1",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.0 <0.2.3-0 || >=0.2.3-alpha.0 <0.3.0-0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.0 <0.2.3-0 || >=0.2.3-alpha.0 <0.3.0-0",
+    "@deepseek-ai/schemastery": "^3.18.2 || ~3.20.0-alpha.1",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1",
-    "@deepseek-ai/schemastery": "3.18.5 || 3.19.0",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1",
-    "@deepseek-ai/cordis": "4.1.0"
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.5",
+    "@deepseek-ai/schemastery": "3.19.0",
+    "esbuild": "^0.25.0",
+    "react": "^18.3.1"
   },
   "publishConfig": {
     "access": "public",
     "tag": "latest"
-  },
-  "homepage": "https://github.com/oxmumu3/ai-twin-starter",
-  "bugs": {
-    "url": "https://github.com/oxmumu3/ai-twin-starter/issues"
   }
 }

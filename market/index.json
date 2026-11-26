@@ -1,23 +1,23 @@
 {
   "format": 1,
   "title": {
-    "en": "Agent Twin Setup",
-    "zh": "AI分身搭建"
+    "en": "AI Twin Workbench",
+    "zh": "AI 分身工作台"
   },
   "description": {
-    "en": "Prepare project materials, distill a twin, check Slack and verify permissions.",
-    "zh": "准备分身材料、蒸馏分身、连接通道、设定权限。"
+    "en": "Full-blooded isolated DSH workspace twin with 0.2.3 official Feishu/WeCom connectors, real personal WeChat QR, inline approval cards, and per-caller sandboxes.",
+    "zh": "满血隔离 DSH 工作分身：3 分钟复用 0.2.3 官方飞书/企微连接器与真个人微信扫码，按人物理裁剪沙箱、红线原位拍板与 15 分钟本人在场退让。"
   },
   "plugins": [
     {
-      "name": "dsh-agent-twin",
+      "name": "@oxmumu3/dsh-agent-twin",
       "title": {
-        "en": "Agent Twin Setup",
-        "zh": "AI分身搭建"
+        "en": "AI Twin Workbench",
+        "zh": "AI 分身工作台"
       },
       "description": {
-        "en": "Native project materials, evidence-backed capabilities, authorized Slack service, identity rules and durable receipts. Includes bounded local workflows.",
-        "zh": "原生四模块持续管理、来源能力、授权Slack服务、身份规则与持久回执，附本地有界工作流。"
+        "en": "Full-blooded isolated DSH Agent + Thin Scoped Workspace Harness, 0.2.3 official Feishu/WeCom connectors & real WeChat iLink, 4 atomic tools with inline tool.call.toolview approval cards, and extensible agentTwin service.",
+        "zh": "满血只读隔离 DSH 分身工作台：0.2.3 官方飞书/企微连接器一键复用、真实个人微信 iLink 扫码、四枚原子工具与主对话流原位审批卡片。"
       },
       "author": "牛村木木山",
       "homepage": "https://github.com/oxmumu3/ai-twin-starter#readme",
@@ -26,63 +26,15 @@
       },
       "versions": [
         {
-          "version": "0.4.0-preview.3",
-          "publishTimestamp": 1792974790,
+          "version": "0.6.3",
+          "publishTimestamp": 1795688000,
           "source": {
-            "type": "git",
-            "url": "https://github.com/oxmumu3/ai-twin-starter",
-            "commit": "bf33c43852d53428f62eb21f046fe380d1cd5b67"
+            "type": "npm",
+            "package": "@oxmumu3/dsh-agent-twin",
+            "version": "0.6.1"
           },
           "engines": {
-            "dsh": "0.2.1-rc.2 || 0.2.1-rc.3"
-          }
-        },
-        {
-          "version": "0.4.0-preview.2",
-          "publishTimestamp": 1792702954,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/oxmumu3/ai-twin-starter",
-            "commit": "8afe64873a08084c67573233fca37917ae252b51"
-          },
-          "engines": {
-            "dsh": "0.2.1-rc.2"
-          }
-        },
-        {
-          "version": "0.4.0-preview.1",
-          "publishTimestamp": 1792698768,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/oxmumu3/ai-twin-starter",
-            "commit": "cf9d18c7eb1f539e8aaf69bb21928f4487ac0463"
-          },
-          "engines": {
-            "dsh": "0.2.1-rc.2"
-          }
-        },
-        {
-          "version": "0.3.0",
-          "publishTimestamp": 1792393555,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/oxmumu3/ai-twin-starter",
-            "commit": "40a8adc18de6a3f508888150076514172ccb7620"
-          },
-          "engines": {
-            "dsh": "0.2.1-rc.2"
-          }
-        },
-        {
-          "version": "0.2.0",
-          "publishTimestamp": 1792391340,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/oxmumu3/ai-twin-starter",
-            "commit": "34e82e8ab7db4a0667198f1dba97a590abb17d45"
-          },
-          "engines": {
-            "dsh": "0.2.1-rc.2"
+            "dsh": ">=0.2.2-rc.2 <0.2.3-0 || >=0.2.3-alpha.0 <0.2.4-0"
           }
         }
       ]

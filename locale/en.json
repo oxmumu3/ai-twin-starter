@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "AI Twin Workbench",
+    "description": "Full-blooded isolated DSH workspace twin with 0.2.3 official Feishu/WeCom connectors & personal WeChat QR, per-caller scoping, redline approvals, and 15-min owner yield."
+  },
+  "tools": {
+    "status": "Twin Status",
+    "publish": "Publish Workspace",
+    "grant": "Grant Access",
+    "inbox": "Inbox & Approvals"
+  }
+}

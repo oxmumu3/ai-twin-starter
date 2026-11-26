@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 export const Config = z.object({
   stateDirectory: z.string().default('').description('分身私有状态目录；留空使用当前 Harness profile 的 data 目录。'),
+  guestPort: z.number().default(19480).description('内置免装试用网页回环端口；测试环境传 0 随机绑定。'),
   slackBotToken: z.string().default('').role('secret').description('Slack Bot Token；仅在原生设置维护，不写入项目资料或对话。').volatile(),
 });
 

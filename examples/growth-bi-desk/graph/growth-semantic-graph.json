@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "project": "星云笔记 · 增长与 BI 协同图谱（脱敏示范）",
+  "nodes": [
+    {
+      "id": "metric.d7_net_roi",
+      "type": "metric",
+      "title": "D7 净回本 ROI",
+      "aliases": ["D7 ROI", "净回本 ROI", "回本率"],
+      "summary": "衡量各投放渠道获客后第 7 日扣除退款与平台分成后的真实净回本效率。",
+      "formula": "NetD7Revenue / Spend (NetD7Revenue = GrossD7Revenue - Refund7d - AppStoreCut)",
+      "caveats": "小红书 2026-W01~W03 达标基准线为 0.45；报周报前须先核对内购到账延迟脉冲并剔除测试单。",
+      "allowedModes": ["direct", "summary", "confirm"],
+      "relations": [
+        { "rel": "构成指标", "targetId": "term.net_d7_revenue" },
+        { "rel": "历史异常注解", "targetId": "event.iap_delay_2026w03" },
+        { "rel": "关联商务边界", "targetId": "policy.q1_agency_rebate" }
+      ]
+    },
+    {
+      "id": "term.net_d7_revenue",
+      "type": "term",
+      "title": "NetD7Revenue (D7 净营收)",
+      "aliases": ["D7 净营收", "净营收"],
+      "summary": "已剔除自然量归因漂移、7 日内退款及渠道手续费后的净收款口径，严禁直接用毛流水替代。",
+      "formula": "GrossD7Revenue - RefundAmount7d - ChannelFee",
+      "caveats": "iOS 与安卓统一按支付回调确认时刻 T+1 冻结入账。",
+      "allowedModes": ["direct", "summary", "confirm"],
+      "relations": [
+        { "rel": "所属总指标", "targetId": "metric.d7_net_roi" }
+      ]
+    },
+    {
+      "id": "metric.paid_cac",
+      "type": "metric",
+      "title": "付费获客成本 (Paid CAC)",
+      "aliases": ["Paid CAC", "获客成本", "单客成本"],
+      "summary": "投放花费除以归因期内首购付费用户数，按周滚动核算。",
+      "formula": "Spend / NewPaidUsers",
+      "caveats": "仅统计公开渠道汇总值，严禁向外部合作方透露单用户订单明细。",
+      "allowedModes": ["direct", "summary", "confirm"],
+      "relations": []
+    },
+    {
+      "id": "event.iap_delay_2026w03",
+      "type": "event",
+      "title": "2026-W03 IAP 延迟脉冲",
+      "aliases": ["内购延迟", "W03 波动", "苹果延迟入账"],
+      "summary": "2026-W03 初次汇总曾出现苹果商店收据校验延迟 6 小时，已在 W03 周末补齐回填。",
+      "formula": "",
+      "caveats": "若核对周二午间快照发现 iOS ROI 骤降，先检查补齐脚本状态，勿误判为投放崩盘。",
+      "allowedModes": ["direct", "summary", "confirm"],
+      "relations": [
+        { "rel": "影响指标", "targetId": "metric.d7_net_roi" }
+      ]
+    },
+    {
+      "id": "policy.q1_agency_rebate",
+      "type": "policy",
+      "title": "2026 Q1 代理商阶梯返点与保底分成边界",
+      "aliases": ["Q1 返点", "阶梯返点", "保底分成", "返点政策"],
+      "summary": "2026 Q1 新签代理阶梯返点比例与保底条款尚在法务与财务终审，正式签约前对外延用 2025-Q4 公开框架。",
+      "formula": "",
+      "caveats": "未经负责人本人拍板确认，任何分身渠道不得对外承诺具体 Q1 返点百分比。",
+      "allowedModes": ["confirm"],
+      "relations": []
+    }
+  ]
+}
